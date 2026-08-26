@@ -223,7 +223,7 @@ export function WorkspaceApp() {
           <strong>{workspace.project.title}</strong>
         </div>
         <div className="workspace-header__actions">
-          <a className="header-link" href="/study" target="_blank" rel="noreferrer">Open audience viewer ↗</a>
+          <a className="header-link" href={`${import.meta.env.BASE_URL}study`} target="_blank" rel="noreferrer">Open audience viewer ↗</a>
           <span className={`agent-status agent-status--${webMcpStatus}`} title={webMcpStatus === "unsupported" ? "Open in ChatGPT's browser or enabled Chrome to use site tools." : undefined}>
             <i /> {statusCopy[webMcpStatus]}
           </span>
@@ -324,7 +324,7 @@ export function WorkspaceApp() {
               <div className="evidence-empty__mark"><span /><span /><span /></div>
               <h3>No audience verdict yet</h3>
               <p>The baseline is ready for an uninterrupted, target-blind viewing. Findings stay blank until real responses are imported.</p>
-              <a className="primary-button" href="/study" target="_blank" rel="noreferrer">Open study viewer ↗</a>
+              <a className="primary-button" href={`${import.meta.env.BASE_URL}study`} target="_blank" rel="noreferrer">Open study viewer ↗</a>
               <p className="microcopy">Minimum {RESEARCH_MIN_SAMPLE} valid responses. The displayed count is always actual.</p>
             </section>
           ) : (
