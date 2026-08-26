@@ -1,6 +1,6 @@
 # Payoff — Product and Implementation Plan
 
-Status: implementation in progress; audience collection and public deployment pending
+Status: research-ready implementation deployed; audience collection and target-browser verification pending
 Last updated: August 26, 2026
 Submission deadline: September 3, 2026 at 1:00 p.m. PDT / 4:00 p.m. EDT
 
@@ -322,7 +322,8 @@ Gate: a reviewer can understand the intended emotion, baseline story, human-agen
 - [x] Scaffold Vite/React/TypeScript, linting, tests, and static deployment configuration.
 - [x] Implement types, seed loading, immutable versions, commands, selectors, persistence, reset, and undo.
 - [x] Build the brief, six-card storyboard, evidence panel, and activity strip with original baseline/revised art.
-- [ ] Deploy the uninterrupted baseline viewer and begin target-blind collection.
+- [x] Deploy the uninterrupted baseline viewer.
+- [ ] Begin target-blind collection.
 
 Gate: human controls and direct command tests mutate the same persisted board; reload and reset are deterministic.
 
@@ -357,7 +358,7 @@ Gate: 5/5 clean hero runs, no console errors, no clipping at capture resolution,
 
 ### Phase 5 — Release candidate and submission (September 1–2)
 
-- [ ] Publish the final public app and public repository.
+- [x] Publish the research-ready public app and public repository; freeze the final release only after evidence and target-browser verification are complete.
 - [x] Write a concise README with local setup, architecture, exact WebMCP tools, testing instructions, data provenance, privacy, and demo reset instructions.
 - [ ] Add screenshots, social preview, license visibility, and third-party attribution if any.
 - [ ] Draft the Devpost description around WebMCP fit, improved UX, new human-agent capability, and implementation.

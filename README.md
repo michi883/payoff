@@ -12,6 +12,10 @@ Payoff does not include an embedded chatbot, model backend, synthetic audience, 
 
 The immutable **Nothing Urgent** baseline and target-blind audience viewer are ready for research. No audience findings are bundled or simulated. The creator workspace starts at `0/12 minimum` and displays only the number of valid, version-matched response files actually imported.
 
+- [Live creator workspace](https://michi883.github.io/payoff/)
+- [Target-blind audience viewer](https://michi883.github.io/payoff/study/)
+- [Public source repository](https://github.com/michi883/payoff)
+
 ## Run locally
 
 Requirements: Node.js 22+ and npm 10+.
@@ -103,7 +107,9 @@ The deterministic demo replacement changes beats 5 and 6, but it remains labeled
 
 ## Deploy
 
-The repository contains `vercel.json` with a single-page-app rewrite. On Vercel:
+Every push to `main` publishes the research build to GitHub Pages. The workflow creates direct entry documents for the workspace and `/study/`, so participant links return HTTP 200 without a server.
+
+The repository also contains `vercel.json` with a single-page-app rewrite for the planned final Vercel host. On Vercel:
 
 - Build command: `npm run build`
 - Output directory: `dist`
