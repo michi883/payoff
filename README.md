@@ -39,6 +39,8 @@ npm run build
 npm run test:e2e
 ```
 
+The browser suite launches installed Chrome with `WebMCP` enabled and exercises native tool discovery, read execution, and a visible version-checked write. It does not substitute a mocked protocol surface for that end-to-end check.
+
 ## Collect real responses
 
 1. Deploy the app and give each participant only the `/study` URL. Do not disclose the emotional target.

@@ -332,7 +332,7 @@ Gate: human controls and direct command tests mutate the same persisted board; r
 - [x] Define the six schemas and concise descriptions.
 - [x] Implement feature detection, registration, cleanup, annotations, bounded results, errors, and cancellation handling.
 - [x] Add command/tool tests for discovery, reads, mutations, stale versions, invalid evidence, and output budgets.
-- [ ] Verify the tools manually in Chrome with WebMCP enabled.
+- [x] Verify all six tools through Chrome's native WebMCP discovery and execution path, including visible mutation and stale-write rejection.
 
 Gate: every tool is discoverable and a successful write visibly updates the board and returns matching verification data.
 

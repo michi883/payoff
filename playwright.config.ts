@@ -12,6 +12,7 @@ export default defineConfig({
     screenshot: "only-on-failure",
     ...devices["Desktop Chrome"],
     channel: "chrome",
+    launchOptions: { args: ["--enable-features=WebMCP"] },
     viewport: { width: 1440, height: 900 },
   },
   webServer: {

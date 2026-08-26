@@ -51,3 +51,51 @@ test("the first audience viewing is uninterrupted and target-blind", async ({ pa
   await expect(page.getByText("What emotion did the ending leave you with?")).toBeVisible();
   await expect(page.getByText("The creator’s intended response is intentionally hidden.")).toBeVisible();
 });
+
+test("real Chrome WebMCP discovers tools and executes the shared command path", async ({ page }) => {
+  await openClean(page, "/");
+  await expect(page.getByText("Agent ready", { exact: true })).toBeVisible();
+
+  const result = await page.evaluate(async () => {
+    const context = document.modelContext;
+    if (!context) throw new Error("WebMCP is unavailable despite the enabled Chrome feature.");
+    const tools = await context.getTools();
+    const run = async (name: string, input: Record<string, unknown>) => {
+      const tool = tools.find((candidate) => candidate.name === name);
+      if (!tool) throw new Error(`Missing WebMCP tool: ${name}`);
+      const output = await context.executeTool(tool, JSON.stringify(input));
+      return JSON.parse(output ?? "{}");
+    };
+    const brief = await run("get_story_brief", {});
+    const reactions = await run("get_audience_reactions", {});
+    const replacement = await run("replace_story_beat", {
+      beat_id: "beat-5",
+      expected_version: brief.active_version,
+      title: "Warmly, again",
+      action: "Across town, Mom taps her own suggested reply without listening to Eli's note.",
+      line: "Make it sound more maternal ✦",
+      narrative_role: "turn",
+      intended_emotion: "recognition",
+      art_key: "mother_autoreply",
+    });
+    return {
+      names: tools.map((tool) => tool.name).sort(),
+      reactions,
+      replacement,
+    };
+  });
+
+  expect(result.names).toEqual([
+    "create_story_beat",
+    "get_audience_reactions",
+    "get_story_brief",
+    "list_story_beats",
+    "move_story_beat",
+    "replace_story_beat",
+  ]);
+  expect(result.reactions.valid_response_count).toBe(0);
+  expect(result.reactions.note).toMatch(/No human responses/);
+  expect(result.replacement.affectedBeatIds).toEqual(["beat-5"]);
+  await expect(page.getByRole("heading", { name: "Warmly, again" })).toBeVisible();
+  await expect(page.getByText("Untested revision · based on tested v1", { exact: true })).toBeVisible();
+});
