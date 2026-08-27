@@ -1,0 +1,23 @@
+{
+  "schema": "payoff-study-response/v1",
+  "study": {
+    "projectId": "looks-great",
+    "storyVersionId": "looks-great-v1",
+    "storyHash": "fnv1a:21f87056",
+    "targetWasHidden": true,
+    "firstViewingWasUninterrupted": true
+  },
+  "response": {
+    "id": "rehearsal-only-looks-great-03",
+    "storyVersionId": "looks-great-v1",
+    "storyHash": "fnv1a:21f87056",
+    "submittedAt": "2026-08-27T12:03:00.000Z",
+    "endingEmotion": "warm",
+    "interpretation": "The story is about catching yourself in a bad habit before distance becomes permanent.",
+    "wasSurprised": false,
+    "predictionPoint": "beat_4",
+    "changedBeatId": "beat-6",
+    "changedWhy": "Putting the phone down turned recognition into a real choice.",
+    "quoteConsent": false
+  }
+}

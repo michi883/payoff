@@ -5,176 +5,129 @@ type SceneArtProps = {
   label: string;
 };
 
-function Phone({ x = 118, y = 32, glow = false }: { x?: number; y?: number; glow?: boolean }) {
+function Phone({ x, y, faceDown = false }: { x: number; y: number; faceDown?: boolean }) {
+  if (faceDown) {
+    return <rect className="scene-ink" x={x} y={y} width="58" height="11" rx="5" />;
+  }
   return (
-    <g className={glow ? "scene-phone scene-phone--glow" : "scene-phone"}>
-      {glow && <rect className="scene-glow" x={x - 18} y={y - 18} width="120" height="164" rx="40" />}
-      <rect className="scene-ink" x={x} y={y} width="84" height="124" rx="14" />
-      <rect className="scene-screen" x={x + 6} y={y + 8} width="72" height="104" rx="9" />
-      <circle className="scene-paper" cx={x + 42} cy={y + 118} r="3" />
+    <g>
+      <rect className="scene-ink" x={x} y={y} width="35" height="57" rx="7" />
+      <rect className="scene-screen" x={x + 4} y={y + 5} width="27" height="43" rx="4" />
     </g>
   );
 }
 
-function Person({ x, y, flip = false, older = false }: { x: number; y: number; flip?: boolean; older?: boolean }) {
+function Dad({ x, y, lookingDown = true }: { x: number; y: number; lookingDown?: boolean }) {
   return (
-    <g transform={`translate(${x} ${y}) scale(${flip ? -1 : 1} 1)`}>
-      <circle className="scene-ink" cx="0" cy="0" r="18" />
-      {older && <path className="scene-paper" d="M-16,-5 Q0,-24 16,-5 Q7,-12 0,-8 Q-8,-13 -16,-5" />}
-      <path className="scene-ink" d="M-27,64 Q-24,25 0,25 Q24,25 27,64 Z" />
-      <path className="scene-line" d="M7,36 L30,55" />
-      <rect className="scene-accent" x="24" y="46" width="18" height="29" rx="4" />
+    <g transform={`translate(${x} ${y})`}>
+      <circle className="scene-ink" cx="0" cy="0" r="20" />
+      <path className="scene-paper" d={lookingDown ? "M-9 3 Q0 10 9 3" : "M-9 -1 Q0 5 9 -1"} fill="none" strokeWidth="2" />
+      <path className="scene-ink" d="M-34 85 Q-31 31 0 28 Q31 31 34 85 Z" />
+      {lookingDown && (
+        <>
+          <path className="scene-line" d="M-18 46 L13 62" />
+          <Phone x={7} y={45} />
+        </>
+      )}
+    </g>
+  );
+}
+
+function Girl({ x, y, walking = false }: { x: number; y: number; walking?: boolean }) {
+  return (
+    <g transform={`translate(${x} ${y})`}>
+      <circle className="scene-ink" cx="0" cy="0" r="15" />
+      <circle className="scene-ink" cx="-15" cy="-3" r="7" />
+      <path className="scene-accent" d="M-22 70 Q-19 25 0 24 Q19 25 22 70 Z" />
+      <path className="scene-line" d={walking ? "M-8 68 L-22 91 M8 68 L23 88" : "M-8 68 L-12 91 M8 68 L12 91"} />
+    </g>
+  );
+}
+
+function Drawing({ x, y, width = 72, height = 58, motif = "sun" }: {
+  x: number;
+  y: number;
+  width?: number;
+  height?: number;
+  motif?: "sun" | "heart" | "house";
+}) {
+  return (
+    <g>
+      <rect className="scene-paper scene-paper--outline" x={x} y={y} width={width} height={height} rx="3" />
+      {motif === "sun" && (
+        <>
+          <circle className="scene-sun" cx={x + width * 0.72} cy={y + height * 0.28} r={height * 0.12} />
+          <path className="scene-accent-line" d={`M${x + 9} ${y + height - 10} L${x + width * 0.42} ${y + height * 0.54} L${x + width - 8} ${y + height - 10}`} />
+        </>
+      )}
+      {motif === "heart" && <path className="scene-accent" d={`M${x + width / 2} ${y + height * 0.72} C${x + width * 0.12} ${y + height * 0.44},${x + width * 0.28} ${y + height * 0.18},${x + width / 2} ${y + height * 0.36} C${x + width * 0.72} ${y + height * 0.18},${x + width * 0.88} ${y + height * 0.44},${x + width / 2} ${y + height * 0.72} Z`} />}
+      {motif === "house" && (
+        <>
+          <path className="scene-accent" d={`M${x + 13} ${y + height * 0.48} L${x + width / 2} ${y + 9} L${x + width - 13} ${y + height * 0.48} Z`} />
+          <rect className="scene-sun" x={x + 19} y={y + height * 0.46} width={width - 38} height={height * 0.36} />
+        </>
+      )}
+    </g>
+  );
+}
+
+function Fridge() {
+  return (
+    <g>
+      <rect className="scene-screen scene-outline" x="43" y="17" width="168" height="148" rx="12" />
+      <path className="scene-line" d="M43 84 H211" />
+      <path className="scene-line" d="M193 41 V67" />
+      <path className="scene-line" d="M193 100 V128" />
     </g>
   );
 }
 
 function GenericArt({ artKey }: { artKey: ArtKey }) {
-  if (artKey === "phone_closeup") {
-    return <Phone x={118} y={27} glow />;
-  }
+  if (artKey === "phone_closeup") return <Phone x={142} y={55} />;
   if (artKey === "conversation") {
-    return (
-      <>
-        <Person x={83} y={63} />
-        <Person x={237} y={63} flip />
-        <path className="scene-line scene-line--dash" d="M110 48 C145 20 178 20 210 48" />
-      </>
-    );
+    return <><Dad x={95} y={62} lookingDown={false} /><Girl x={226} y={76} /><path className="scene-line scene-line--dash" d="M120 51 C153 25 184 25 210 51" /></>;
   }
   if (artKey === "window_light") {
-    return (
-      <>
-        <rect className="scene-ink" x="66" y="22" width="188" height="130" rx="5" />
-        <rect className="scene-sun" x="78" y="34" width="164" height="106" />
-        <path className="scene-line" d="M160 34 V140 M78 87 H242" />
-        <Person x={160} y={88} />
-      </>
-    );
+    return <><rect className="scene-ink" x="66" y="22" width="188" height="130" rx="5" /><rect className="scene-sun" x="78" y="34" width="164" height="106" /><path className="scene-line" d="M160 34 V140 M78 87 H242" /></>;
   }
-  return (
-    <>
-      <circle className="scene-sun" cx="160" cy="86" r="62" />
-      <circle className="scene-ink" cx="160" cy="86" r="42" />
-      <path className="scene-paper" d="M160 53 V88 L187 104" fill="none" strokeWidth="7" strokeLinecap="round" />
-    </>
-  );
+  return <><circle className="scene-sun" cx="160" cy="86" r="62" /><circle className="scene-ink" cx="160" cy="86" r="42" /><path className="scene-paper" d="M160 53 V88 L187 104" fill="none" strokeWidth="7" strokeLinecap="round" /></>;
 }
 
 export function SceneArt({ artKey, label }: SceneArtProps) {
+  const storyArt = ["drawing_offer", "drawing_again", "fridge_gallery", "quiet_fridge", "phone_dad_drawing", "crayon_together"];
+
   return (
     <svg className={`scene-art scene-art--${artKey}`} viewBox="0 0 320 180" role="img" aria-label={label}>
       <rect className="scene-bg" width="320" height="180" rx="18" />
       <circle className="scene-orbit" cx="276" cy="28" r="54" />
 
-      {artKey === "emoji_glow" && (
+      {artKey === "drawing_offer" && <><Girl x={73} y={69} /><Drawing x={102} y={52} motif="sun" /><Dad x={247} y={57} /></>}
+      {artKey === "drawing_again" && <><circle className="scene-sun" cx="42" cy="35" r="16" /><Girl x={76} y={70} /><Drawing x={105} y={50} motif="heart" /><Dad x={247} y={57} /></>}
+      {artKey === "fridge_gallery" && (
+        <><Fridge /><Drawing x={57} y={29} width={48} height={38} motif="sun" /><Drawing x={119} y={34} width={55} height={39} motif="heart" /><Drawing x={67} y={96} width={57} height={45} motif="house" /><Drawing x={138} y={96} width={50} height={43} motif="sun" /><Dad x={267} y={72} /></>
+      )}
+      {artKey === "quiet_fridge" && <><Fridge /><Drawing x={92} y={55} width={70} height={55} motif="house" /><Girl x={263} y={74} walking /><path className="scene-line scene-line--dash" d="M228 124 C248 134 271 139 295 135" /></>}
+      {artKey === "phone_dad_drawing" && (
         <>
-          <Phone x={54} y={30} />
-          <rect className="scene-bubble" x="138" y="38" width="132" height="54" rx="22" />
-          <text className="scene-emoji" x="156" y="75">😂</text>
-          <text className="scene-heart" x="218" y="74">♥</text>
-          <path className="scene-line scene-line--dash" d="M136 118 C180 144 229 142 271 111" />
+          <rect className="scene-paper scene-paper--outline" x="30" y="18" width="206" height="144" rx="5" />
+          <Girl x={84} y={71} />
+          <Phone x={145} y={50} />
+          <text className="scene-dad-label" x="131" y="134">DAD</text>
+          <path className="scene-accent-line" d="M116 123 C132 108 153 108 172 123" />
+          <Dad x={275} y={75} lookingDown={false} />
         </>
       )}
-
-      {artKey === "voice_wave" && (
+      {artKey === "crayon_together" && (
         <>
-          <Phone x={39} y={29} />
-          <g transform="translate(145 57)">
-            {[20, 46, 70, 42, 82, 55, 30].map((height, index) => (
-              <rect
-                className={index === 4 ? "scene-accent" : "scene-ink"}
-                key={height + index}
-                x={index * 18}
-                y={(84 - height) / 2}
-                width="8"
-                height={height}
-                rx="4"
-              />
-            ))}
-          </g>
-          <path className="scene-line" d="M151 143 H277" />
+          <Phone x={29} y={142} faceDown />
+          <Dad x={112} y={65} lookingDown={false} />
+          <Girl x={228} y={77} />
+          <rect className="scene-paper scene-paper--outline" x="102" y="128" width="130" height="36" rx="3" />
+          <path className="scene-accent-line" d="M171 137 L207 151" />
+          <path className="scene-line" d="M137 114 L172 138 M214 115 L205 145" />
         </>
       )}
-
-      {artKey === "auto_reply" && (
-        <>
-          <Person x={72} y={70} />
-          <Phone x={172} y={27} glow />
-          <rect className="scene-bubble" x="194" y="54" width="52" height="8" rx="4" />
-          <rect className="scene-bubble" x="194" y="70" width="38" height="8" rx="4" />
-          <rect className="scene-accent" x="194" y="91" width="51" height="15" rx="7" />
-          <path className="scene-line scene-line--dash" d="M116 54 C144 44 153 43 175 52" />
-        </>
-      )}
-
-      {artKey === "message_streak" && (
-        <>
-          {[0, 1, 2, 3, 4].map((index) => (
-            <g key={index} transform={`translate(${35 + index * 52} ${48 + Math.abs(2 - index) * 10})`}>
-              <rect className="scene-screen" width="42" height="62" rx="9" />
-              <circle className={index === 4 ? "scene-accent" : "scene-ink"} cx="21" cy="23" r="9" />
-              <path className="scene-line" d="M10 43 H32" />
-            </g>
-          ))}
-          <path className="scene-line scene-line--dash" d="M56 138 C110 112 208 160 264 126" />
-          <text className="scene-number" x="139" y="103">30</text>
-        </>
-      )}
-
-      {artKey === "empty_chair" && (
-        <>
-          <path className="scene-ink" d="M77 70 H151 V119 H66 V81 Q66 70 77 70 Z" />
-          <path className="scene-line" d="M75 119 L64 153 M143 119 L155 153" />
-          <rect className="scene-bubble" x="178" y="39" width="99" height="48" rx="20" />
-          <path className="scene-line" d="M193 62 H263" />
-          <circle className="scene-accent" cx="228" cy="116" r="11" />
-          <path className="scene-line" d="M228 108 V124" />
-        </>
-      )}
-
-      {artKey === "funeral_phone" && (
-        <>
-          <circle className="scene-muted" cx="61" cy="88" r="29" />
-          <circle className="scene-muted" cx="255" cy="88" r="29" />
-          <circle className="scene-muted" cx="108" cy="74" r="35" />
-          <circle className="scene-muted" cx="210" cy="74" r="35" />
-          <Phone x={118} y={27} glow />
-          <rect className="scene-accent" x="138" y="64" width="44" height="10" rx="5" />
-          <path className="scene-line" d="M137 88 H183 M144 100 H176" />
-        </>
-      )}
-
-      {artKey === "mother_autoreply" && (
-        <>
-          <Person x={93} y={68} older />
-          <rect className="scene-bubble" x="157" y="35" width="126" height="59" rx="24" />
-          <path className="scene-line" d="M177 56 H257 M177 72 H230" />
-          <circle className="scene-accent" cx="254" cy="124" r="17" />
-          <path className="scene-paper" d="M247 124 L252 129 L262 118" fill="none" strokeWidth="4" strokeLinecap="round" />
-        </>
-      )}
-
-      {artKey === "two_rooms" && (
-        <>
-          <path className="scene-line" d="M160 19 V161" />
-          <Person x={84} y={70} />
-          <Person x={236} y={70} flip older />
-          <path className="scene-accent-line" d="M113 48 C141 24 178 24 207 48" />
-          <path className="scene-accent-line" d="M207 56 C177 80 143 80 113 56" />
-          <path className="scene-arrow" d="M202 42 L210 48 L202 53 M119 50 L110 56 L118 62" />
-        </>
-      )}
-
-      {![
-        "emoji_glow",
-        "voice_wave",
-        "auto_reply",
-        "message_streak",
-        "empty_chair",
-        "funeral_phone",
-        "mother_autoreply",
-        "two_rooms",
-      ].includes(artKey) && <GenericArt artKey={artKey} />}
+      {!storyArt.includes(artKey) && <GenericArt artKey={artKey} />}
     </svg>
   );
 }

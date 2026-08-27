@@ -1,18 +1,24 @@
-import type { ProjectBrief, StoryBeat, Workspace } from "./types";
+import type { ProjectBrief, ReactionSet, StoryBeat, StoryVersion, StudyStimulus, Workspace } from "./types";
 
 export const RESEARCH_MIN_SAMPLE = 12;
-export const BASELINE_VERSION_ID = "nothing-urgent-v1";
+export const BASELINE_VERSION_ID = "looks-great-v1";
+export const INITIAL_VERSION_ID = "payoff-start-v0";
 
 export const PROJECT_BRIEF: ProjectBrief = {
-  id: "nothing-urgent",
-  title: "Nothing Urgent",
-  topic: "Outsourcing intimacy to AI",
-  format: "60-second vertical short",
+  id: "looks-great",
+  title: "Looks Great",
+  topic: "A distracted father finally sees what his daughter has been trying to show him",
+  format: "45-second vertical short",
+  audienceFeeling: "Familiar amusement, then a small gut punch, then warmth",
+  targetSummary: "Familiar amusement → small gut punch → warmth",
   target: {
-    setupEmotion: "Amused by the convenience",
-    payoffEmotion: "An oh-shit realization",
-    realization: "Neither person is participating in the relationship anymore.",
-    constraints: ["Keep the setup quick and recognizably funny."],
+    setupEmotion: "Familiar amusement",
+    payoffEmotion: "Small gut punch → warmth",
+    realization: "His automatic praise made the phone feel more present than he was.",
+    constraints: [
+      "Keep the story visual and understandable with minimal language.",
+      "Let the father repair the moment without turning him into a villain.",
+    ],
   },
 };
 
@@ -20,62 +26,62 @@ export const BASELINE_BEATS: StoryBeat[] = [
   {
     id: "beat-1",
     order: 1,
-    title: "Perfect response",
-    action: "A suggested emoji appears over a long message from Mom. Eli taps it without reading.",
-    line: "Suggested reply: 😂❤️",
+    title: "Dad, look",
+    action: "A girl proudly holds up a drawing. Dad stays focused on his phone.",
+    line: "Looks great.",
     narrativeRole: "setup",
-    intendedEmotion: "amused",
-    artKey: "emoji_glow",
+    intendedEmotion: "familiar amusement",
+    artKey: "drawing_offer",
   },
   {
     id: "beat-2",
     order: 2,
-    title: "Nothing urgent",
-    action: "Mom's two-minute voice note compresses into a tidy three-word summary.",
-    line: "Nothing urgent.",
+    title: "Again",
+    action: "On another day, she brings a new drawing. Dad still does not look up.",
+    line: "Love it.",
     narrativeRole: "setup",
-    intendedEmotion: "amused",
-    artKey: "voice_wave",
+    intendedEmotion: "amused recognition",
+    artKey: "drawing_again",
   },
   {
     id: "beat-3",
     order: 3,
-    title: "Warmly generated",
-    action: "A loving paragraph writes itself while Eli keeps scrolling another feed.",
-    line: "Make it warmer ✦",
+    title: "The pattern",
+    action: "Drawings accumulate on the refrigerator as the same distracted praise repeats.",
+    line: "",
     narrativeRole: "escalation",
-    intendedEmotion: "amused",
-    artKey: "auto_reply",
+    intendedEmotion: "recognition",
+    artKey: "fridge_gallery",
   },
   {
     id: "beat-4",
     order: 4,
-    title: "A perfect streak",
-    action: "Thirty effortless days of hearts, check-ins, and good-night texts flick past.",
-    line: "30 day connection streak!",
-    narrativeRole: "escalation",
-    intendedEmotion: "uneasy",
-    artKey: "message_streak",
+    title: "She stops asking",
+    action: "The girl quietly adds one more drawing herself, then walks away.",
+    line: "",
+    narrativeRole: "turn",
+    intendedEmotion: "small hurt",
+    artKey: "quiet_fridge",
   },
   {
     id: "beat-5",
     order: 5,
-    title: "One unheard note",
-    action: "The room is quiet. Mom's chair is empty. One last voice note remains unheard.",
-    line: "2:14 · Not played",
-    narrativeRole: "turn",
-    intendedEmotion: "sad",
-    artKey: "empty_chair",
+    title: "The payoff",
+    action: "Dad finally notices: a large phone sits in his place beside the girl.",
+    line: "DAD",
+    narrativeRole: "payoff",
+    intendedEmotion: "gut punch",
+    artKey: "phone_dad_drawing",
   },
   {
     id: "beat-6",
     order: 6,
-    title: "Automate grief",
-    action: "At the funeral, Eli's phone lights his face with one final offer.",
-    line: "Would you like help grieving?",
+    title: "The response",
+    action: "Dad puts his phone face down and sits beside her. She slides him a crayon.",
+    line: "",
     narrativeRole: "payoff",
-    intendedEmotion: "surprised",
-    artKey: "funeral_phone",
+    intendedEmotion: "warmth",
+    artKey: "crayon_together",
   },
 ];
 
@@ -88,58 +94,100 @@ function fnv1a(value: string) {
   return (hash >>> 0).toString(16).padStart(8, "0");
 }
 
-export const BASELINE_CONTENT_HASH = `fnv1a:${fnv1a(JSON.stringify({
-  projectId: PROJECT_BRIEF.id,
-  versionId: BASELINE_VERSION_ID,
-  beats: BASELINE_BEATS,
-}))}`;
+export function storyContentHash(projectId: string, versionId: string, beats: StoryBeat[]) {
+  const normalizedBeats = beats.map((beat) => ({
+    id: beat.id,
+    order: beat.order,
+    title: beat.title,
+    action: beat.action,
+    line: beat.line,
+    narrativeRole: beat.narrativeRole,
+    intendedEmotion: beat.intendedEmotion,
+    artKey: beat.artKey,
+  }));
+  return `fnv1a:${fnv1a(JSON.stringify({ projectId, versionId, beats: normalizedBeats }))}`;
+}
 
-export const REVISED_ENDING: Record<"beat-5" | "beat-6", Omit<StoryBeat, "id" | "order">> = {
-  "beat-5": {
-    title: "Warmly, again",
-    action: "Across town, Mom taps her own suggested reply without listening to Eli's note.",
-    line: "Make it sound more maternal ✦",
-    narrativeRole: "turn",
-    intendedEmotion: "recognition",
-    artKey: "mother_autoreply",
-  },
-  "beat-6": {
-    title: "Still talking",
-    action: "They sit alive in separate rooms while their phones continue the loving conversation alone.",
-    line: "Connection streak: 31 days",
-    narrativeRole: "payoff",
-    intendedEmotion: "alarmed",
-    artKey: "two_rooms",
-  },
+export const BASELINE_CONTENT_HASH = storyContentHash(PROJECT_BRIEF.id, BASELINE_VERSION_ID, BASELINE_BEATS);
+
+export function studyBeatsWithoutTarget(beats: StoryBeat[]): StudyStimulus["beats"] {
+  return beats.map((beat) => ({
+    id: beat.id,
+    order: beat.order,
+    title: beat.title,
+    action: beat.action,
+    line: beat.line,
+    narrativeRole: beat.narrativeRole,
+    artKey: beat.artKey,
+  }));
+}
+
+export const CANONICAL_STUDY: StudyStimulus = {
+  schema: "payoff-study/v1",
+  projectId: PROJECT_BRIEF.id,
+  title: PROJECT_BRIEF.title,
+  format: PROJECT_BRIEF.format,
+  storyVersionId: BASELINE_VERSION_ID,
+  storyHash: BASELINE_CONTENT_HASH,
+  beats: studyBeatsWithoutTarget(BASELINE_BEATS),
 };
+
+function canonicalReactionSet(): ReactionSet {
+  return {
+    id: "looks-great-study-v1",
+    storyVersionId: BASELINE_VERSION_ID,
+    storyHash: BASELINE_CONTENT_HASH,
+    collectedAt: null,
+    method:
+      "Target-blind uninterrupted first viewing, immediate post-view questionnaire, optional labeled second pass.",
+    responses: [],
+  };
+}
+
+function emptyVersion(id = INITIAL_VERSION_ID): StoryVersion {
+  return {
+    id,
+    number: 0,
+    parentVersionId: null,
+    createdAt: "2026-08-26T16:00:00.000Z",
+    source: "system",
+    reason: "Empty storyboard",
+    beats: [],
+  };
+}
 
 export function createSeedWorkspace(): Workspace {
   return {
-    schemaVersion: 1,
+    schemaVersion: 3,
+    workflow: { stage: "define", source: null },
     project: structuredClone(PROJECT_BRIEF),
-    activeVersionId: BASELINE_VERSION_ID,
+    activeVersionId: INITIAL_VERSION_ID,
     testedVersionId: BASELINE_VERSION_ID,
-    revisionSequence: 1,
-    versions: [
-      {
-        id: BASELINE_VERSION_ID,
-        number: 1,
-        parentVersionId: null,
-        createdAt: "2026-08-26T16:00:00.000Z",
-        source: "system",
-        reason: "Immutable audience-test baseline",
-        beats: structuredClone(BASELINE_BEATS),
-      },
-    ],
-    reactionSet: {
-      id: "nothing-urgent-study-v1",
-      storyVersionId: BASELINE_VERSION_ID,
-      storyHash: BASELINE_CONTENT_HASH,
-      collectedAt: null,
-      method:
-        "Target-blind uninterrupted first viewing, immediate post-view questionnaire, optional labeled second pass.",
-      responses: [],
-    },
+    revisionSequence: 0,
+    versions: [emptyVersion()],
+    reactionSet: canonicalReactionSet(),
+    reactionHistory: [],
+    humanTest: null,
+    aiPreviews: [],
+    humanReports: [],
     activity: [],
   };
+}
+
+export function createCanonicalWorkspace(): Workspace {
+  const workspace = createSeedWorkspace();
+  workspace.workflow = { stage: "storyboard", source: "starter" };
+  workspace.activeVersionId = BASELINE_VERSION_ID;
+  workspace.revisionSequence = 1;
+  workspace.versions = [{
+    id: BASELINE_VERSION_ID,
+    number: 1,
+    parentVersionId: null,
+    createdAt: "2026-08-26T16:00:00.000Z",
+    source: "system",
+    reason: "Original storyboard",
+    beats: structuredClone(BASELINE_BEATS),
+  }];
+  workspace.humanTest = structuredClone(CANONICAL_STUDY);
+  return workspace;
 }

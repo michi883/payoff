@@ -1,0 +1,23 @@
+{
+  "schema": "payoff-study-response/v1",
+  "study": {
+    "projectId": "looks-great",
+    "storyVersionId": "looks-great-v1",
+    "storyHash": "fnv1a:21f87056",
+    "targetWasHidden": true,
+    "firstViewingWasUninterrupted": true
+  },
+  "response": {
+    "id": "rehearsal-only-looks-great-04",
+    "storyVersionId": "looks-great-v1",
+    "storyHash": "fnv1a:21f87056",
+    "submittedAt": "2026-08-27T12:04:00.000Z",
+    "endingEmotion": "moved",
+    "interpretation": "The final shared crayon makes the apology feel active instead of spoken.",
+    "wasSurprised": true,
+    "predictionPoint": "not_predicted",
+    "changedBeatId": "beat-5",
+    "changedWhy": "The phone replacing Dad changed the meaning of every earlier compliment.",
+    "quoteConsent": false
+  }
+}

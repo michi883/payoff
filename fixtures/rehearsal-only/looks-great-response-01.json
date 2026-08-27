@@ -1,0 +1,23 @@
+{
+  "schema": "payoff-study-response/v1",
+  "study": {
+    "projectId": "looks-great",
+    "storyVersionId": "looks-great-v1",
+    "storyHash": "fnv1a:21f87056",
+    "targetWasHidden": true,
+    "firstViewingWasUninterrupted": true
+  },
+  "response": {
+    "id": "rehearsal-only-looks-great-01",
+    "storyVersionId": "looks-great-v1",
+    "storyHash": "fnv1a:21f87056",
+    "submittedAt": "2026-08-27T12:01:00.000Z",
+    "endingEmotion": "warm",
+    "interpretation": "He finally notices what his automatic praise has been costing her and chooses to be present.",
+    "wasSurprised": true,
+    "predictionPoint": "beat_5",
+    "changedBeatId": "beat-5",
+    "changedWhy": "The drawing made his absence visible in one image.",
+    "quoteConsent": false
+  }
+}

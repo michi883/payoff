@@ -1,0 +1,23 @@
+{
+  "schema": "payoff-study-response/v1",
+  "study": {
+    "projectId": "looks-great",
+    "storyVersionId": "looks-great-v1",
+    "storyHash": "fnv1a:21f87056",
+    "targetWasHidden": true,
+    "firstViewingWasUninterrupted": true
+  },
+  "response": {
+    "id": "rehearsal-only-looks-great-02",
+    "storyVersionId": "looks-great-v1",
+    "storyHash": "fnv1a:21f87056",
+    "submittedAt": "2026-08-27T12:02:00.000Z",
+    "endingEmotion": "guilty",
+    "interpretation": "His repair is kind, but it comes after she has already learned to stop asking.",
+    "wasSurprised": true,
+    "predictionPoint": "beat_5",
+    "changedBeatId": "beat-4",
+    "changedWhy": "Her quiet withdrawal made the repeated distraction feel heavier.",
+    "quoteConsent": false
+  }
+}

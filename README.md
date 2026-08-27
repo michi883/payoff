@@ -1,20 +1,19 @@
 # Payoff
 
-Payoff is an agent-native story room for shaping the **emotional payoff** of a short story with real audience evidence.
+Payoff helps creators of short narrative videos answer one question:
 
-The creator defines what an audience should feel. Viewers react to the exact story without seeing that target. A browser agent can then inspect the creative brief, storyboard, and collected reactions through WebMCP, diagnose the gap, and stop. The human chooses the creative tradeoff; only then does the agent edit the shared storyboard through primitive WebMCP tools.
+> Did people feel what I wanted them to feel, and if not, why?
 
-**Intent → Story → Reaction → Diagnosis → Human Direction → Revision → Test Again**
+The creator loop is **create → refine → test → understand → revise → test again**.
 
-Payoff does not include an embedded chatbot, model backend, synthetic audience, or automatic story optimizer.
+A creator gives Payoff a premise, a natural-language audience feeling, and a format. Payoff generates a complete six-beat storyboard with its server-side AI. The creator can request a change in ordinary language, review the proposed beat replacements, and explicitly apply or cancel them. Manual editing remains available behind each beat’s contextual menu.
 
-## Current status
+The full creative workspace has two views:
 
-The immutable **Nothing Urgent** baseline and target-blind audience viewer are ready for research. No audience findings are bundled or simulated. The creator workspace starts at `0/12 minimum` and displays only the number of valid, version-matched response files actually imported.
+- **Storyboard** is the full-width story editor.
+- **Test the payoff** compares the intended payoff with either an **AI Audience** simulation or real **Human Audience** evidence.
 
-- [Live creator workspace](https://michi883.github.io/payoff/)
-- [Target-blind audience viewer](https://michi883.github.io/payoff/study/)
-- [Public source repository](https://github.com/michi883/payoff)
+Diagnosis stays inside Test and never changes the story. The creator chooses what to change, returns to Storyboard, gives explicit direction, reviews a proposal, and then retests the resulting untested version.
 
 ## Run locally
 
@@ -22,6 +21,8 @@ Requirements: Node.js 22+ and npm 10+.
 
 ```bash
 npm install
+cp .env.example .env
+# Add OPENAI_API_KEY to .env
 npm run dev
 ```
 
@@ -29,8 +30,73 @@ Open:
 
 - Creator workspace: [http://localhost:5173/](http://localhost:5173/)
 - Target-blind audience viewer: [http://localhost:5173/study](http://localhost:5173/study)
+- Optional developer details: [http://localhost:5173/?debug=1](http://localhost:5173/?debug=1)
 
-Quality checks:
+`OPENAI_API_KEY` is loaded only by the development server or deployment runtime. It is never exposed through a `VITE_*` variable or imported into the browser application. `OPENAI_MODEL` is optional and defaults to `gpt-5.4-mini`.
+
+## Server-side AI
+
+Payoff exposes four creator operations:
+
+- `POST /api/storyboard` generates a title, compact payoff summary, and exactly six validated beat drafts.
+- `POST /api/audience` returns the same normalized report for either source. For AI Audience it simulates varied behavior and interpretation lenses. For Human Audience it organizes only the exact imported responses and returns their IDs unchanged.
+- `POST /api/diagnose` answers a creator’s question from the exact story and normalized audience result. Its contract has no mutation fields.
+- `POST /api/revise` returns either an inert, version-bound revision proposal or one clarification question. The story changes only when the creator chooses **Apply changes**.
+
+The server uses OpenAI Responses API Structured Outputs with strict Zod schemas, validates the parsed result again, checks all referenced beat IDs, and returns creator-safe errors. The domain store validates every beat again at apply time and rejects stale `expected_version` values before any state change.
+
+The legacy `POST /api/preview` route remains as a compatibility alias for `/api/audience`; the creator UI does not use it.
+
+## Audience sources
+
+AI Audience is a fast simulated perspective check. It uses behavior-based lenses such as casual fast-scrolling, emotionally attentive, literal, story-savvy, skeptical, and comedy-sensitive. It never invents human viewers, research counts, or real quotations.
+
+Human Audience is real target-blind evidence. A viewer receives a link containing only the exact story stimulus, watches all six beats uninterrupted, and then completes an anonymous response form. For the current local-first build, response files are imported into the creator workspace.
+
+Both sources render the exact same report component. Its default overview contains only:
+
+- qualitative match;
+- intended and observed landing;
+- **What landed**;
+- **Where it drifted**;
+- **Biggest opportunity**.
+
+Strongest and weakest beats, emotional progression, reaction notes, disagreements, methodology, provenance, and evidence strength stay behind **See details**.
+
+AI results never enter Human Audience counts. Human report synthesis is pinned to the exact story hash and exact response ID set. Human comments appear only when quote consent is present; otherwise details show aggregate facts derived directly from the imported responses.
+
+## Version and evidence integrity
+
+Every applied edit creates an immutable story version with stable beat IDs. After a change:
+
+- the new active version is **Untested**;
+- previous AI Audience results remain attached only to the version they evaluated;
+- previous Human Audience responses remain attached only to their tested version and content fingerprint;
+- no score increases automatically and no improvement is claimed before retesting;
+- **Undo**, **History**, and **Test again** support safe experimentation.
+
+Human response imports must match the prepared project, story version, and story hash, and must declare a hidden target plus uninterrupted first viewing. Malformed, mismatched, and duplicate responses are rejected without changing accepted evidence.
+
+The synthetic files under `fixtures/rehearsal-only/` verify the import flow during development. They are clearly marked as non-human rehearsal data and must never be used for a public real-viewer claim.
+
+## WebMCP collaboration layer
+
+Normal Payoff features do not depend on WebMCP. When supported, the existing integration registers eight narrow tools against the same store and command layer used by the UI and Payoff’s own AI:
+
+| Tool | Kind | Purpose |
+| --- | --- | --- |
+| `get_story_brief` | Read | Read the brief, target, evidence state, and versions. |
+| `list_story_beats` | Read | Read the ordered storyboard or one stable beat. |
+| `get_ai_preview` | Read | Read the active version’s simulated result. |
+| `get_audience_reactions` | Read, untrusted content | Read real findings pinned to the tested version. |
+| `create_story_beat` | Write | Insert one visible beat. |
+| `replace_story_beat` | Write | Replace one beat while preserving its ID and position. |
+| `move_story_beat` | Write | Explicitly reorder one beat. |
+| `save_ai_preview` | Write | Save a validated simulation without touching story or human evidence. |
+
+There are intentionally no broad `fix_story`, `make_it_better`, or `optimize_payoff` tools. External agents reason across primitive reads and use version-checked primitive writes.
+
+## Quality checks
 
 ```bash
 npm test
@@ -39,99 +105,25 @@ npm run build
 npm run test:e2e
 ```
 
-The browser suite launches installed Chrome with `WebMCP` enabled and exercises native tool discovery, read execution, and a visible version-checked write. It does not substitute a mocked protocol surface for that end-to-end check.
-
-## Collect real responses
-
-1. Deploy the app and give each participant only the `/study` URL. Do not disclose the emotional target.
-2. The viewer automatically shows all six beats before presenting any question.
-3. The participant answers ending emotion, meaning, surprise, prediction timing, and the beat that most changed their reaction.
-4. They may optionally watch a separate second pass and tag individual beats.
-5. The participant downloads or copies the anonymous JSON response and returns it to the researcher.
-6. In the creator workspace, choose **Import response files** and select the collected JSON files.
-7. Collect at least 12 valid responses. Twelve is a minimum, not a display constant; Payoff always shows the actual accepted count.
-
-An imported response must declare that the target was hidden and the first viewing was uninterrupted. It must also match the immutable story version and its content fingerprint. Duplicate IDs, malformed files, and responses for another story version are rejected.
-
-The JSON contains no requested name, email address, IP address, or device identifier. Public quotes appear only when the participant opted in; non-consented free text is not rendered in the workspace.
-
-If the baseline lands exactly as intended, revise the baseline and run a fresh test. Do not manufacture a mismatch or cherry-pick responses.
-
-## WebMCP tools
-
-Payoff registers six imperative tools with `document.modelContext.registerTool(...)`:
-
-| Tool | Kind | Purpose |
-| --- | --- | --- |
-| `get_story_brief` | Read | Read the intent, constraints, evidence status, and internal version IDs. |
-| `list_story_beats` | Read | Read the ordered active storyboard or one stable beat ID. |
-| `get_audience_reactions` | Read, untrusted content | Read real findings attached to the tested version. |
-| `create_story_beat` | Write | Insert one visible beat after explicit creator direction. |
-| `replace_story_beat` | Write | Replace one beat while preserving its ID and position. |
-| `move_story_beat` | Write | Reorder one existing beat. |
-
-All write tools require `expected_version`; stale calls fail without changing state. Human controls and WebMCP tools call the same validated domain commands. Every successful edit creates an immutable internal version, persists locally, highlights the affected card, and returns verification data.
-
-The creator-facing status intentionally hides incidental mutation numbers:
-
-- `Tested v1 · {actual count} viewers`
-- `Untested revision · based on tested v1`
-
-Audience evidence remains permanently attached to the tested version. A revision receives no inferred audience score.
-
-## Test WebMCP
-
-- Open the deployed app in ChatGPT's in-app browser, which supports site tools.
-- Or use Chrome 149+ with `chrome://flags/#enable-webmcp-testing` enabled, then restart Chrome.
-- Inspect the six available tools.
-- During diagnosis, use only the three read tools. The agent should make no edit until the creator explicitly gives creative direction.
-
-Pre-research evidence-neutral prompt:
-
-> What did viewers actually experience, and how did that differ from my target?
-
-Once honest research establishes the demonstrated mismatch, the creator can provide a concrete direction such as:
-
-> Keep beats 1–4. Make the realization that both people outsourced the relationship. No death.
-
-The deterministic demo replacement changes beats 5 and 6, but it remains labeled as an untested revision.
+Vitest covers domain invariants, both Audience source contracts, target-blind study behavior, and WebMCP tool contracts. Playwright covers the complete custom creator journey, the two-second report and details disclosure, generation recovery, proposal/apply/cancel, read-only diagnosis for either source, exact response/report binding, Human Audience synthesis retry, version/evidence separation, Payoff confirmation dialogs, navigation persistence, desktop/tablet/mobile bounds, target-blind viewing, normal use without WebMCP, and native Chrome WebMCP execution.
 
 ## Architecture
 
 - Vite, React, and TypeScript
-- Framework-independent external store consumed with `useSyncExternalStore`
-- Immutable story versions and optimistic `expected_version` concurrency
-- LocalStorage persistence and evidence-preserving demo reset
+- Server-only OpenAI provider using Responses API Structured Outputs
+- Vite development middleware plus Vercel `/api` functions
+- Framework-independent external store via `useSyncExternalStore`
+- Immutable versions and optimistic stale-write protection
+- LocalStorage workspace recovery
+- Target-free shareable study stimuli with content fingerprints
 - Direct imperative WebMCP registration using `webmcp-types`
-- Original inline SVG scene system; no remote assets
-- Static Vercel deployment; no database, authentication, runtime model API, or secrets
-- Vitest unit/tool tests and Playwright browser tests
+- Lightweight inline SVG scene art; no runtime image dependency
 
 ## Deploy
 
-Every push to `main` publishes the research build to GitHub Pages. The workflow creates direct entry documents for the workspace and `/study/`, so participant links return HTTP 200 without a server.
+The complete product requires a server-capable deployment with an `OPENAI_API_KEY` runtime secret. Vercel serves the four `/api` functions, creator SPA, and `/study` route.
 
-The repository also contains `vercel.json` with a single-page-app rewrite for the planned final Vercel host. On Vercel:
-
-- Build command: `npm run build`
-- Output directory: `dist`
-- Framework preset: Vite
-
-Both `/` and `/study` resolve to the application entry point.
-
-## Evidence provenance
-
-Each accepted response retains:
-
-- anonymous response ID;
-- exact tested story version and content fingerprint;
-- submission timestamp;
-- research method assertions;
-- full first-pass answers;
-- quote consent;
-- separately labeled optional second-pass reactions.
-
-Before submission, the final repository should include the anonymized study dataset and its exact question wording only after consent and validation. Temporary or AI-generated audience quotes must never be substituted for collected evidence.
+The historical GitHub Pages workflow can publish the static client, but GitHub Pages cannot run the server-side AI operations and is not the complete product deployment.
 
 ## License
 

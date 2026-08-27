@@ -1,5 +1,5 @@
 import { RESEARCH_MIN_SAMPLE } from "./seed";
-import type { AudienceReaction, ReactionEmotion, StoryBeat, StoryVersion, Workspace } from "./types";
+import type { AIPreview, AudienceReaction, ReactionEmotion, StoryBeat, StoryVersion, Workspace } from "./types";
 
 export function getActiveVersion(workspace: Workspace): StoryVersion {
   const version = workspace.versions.find((candidate) => candidate.id === workspace.activeVersionId);
@@ -18,14 +18,34 @@ export function getActiveBeats(workspace: Workspace): StoryBeat[] {
 }
 
 export function isActiveVersionTested(workspace: Workspace): boolean {
-  return workspace.activeVersionId === workspace.testedVersionId;
+  const hasAIResult = workspace.aiPreviews.some((preview) => preview.storyVersionId === workspace.activeVersionId);
+  const hasHumanResult = workspace.reactionSet.storyVersionId === workspace.activeVersionId && workspace.reactionSet.responses.length > 0;
+  return hasAIResult || hasHumanResult;
+}
+
+export function getTargetPayoff(workspace: Workspace): string {
+  return workspace.project.targetSummary?.trim()
+    || workspace.project.audienceFeeling?.trim()
+    || `${workspace.project.target.setupEmotion} → ${workspace.project.target.payoffEmotion}`;
 }
 
 export function getEvidenceLabel(workspace: Workspace): string {
   const count = workspace.reactionSet.responses.length;
-  if (!isActiveVersionTested(workspace)) return "Untested revision · based on tested v1";
-  if (count >= RESEARCH_MIN_SAMPLE) return `Tested v1 · ${count} ${count === 1 ? "viewer" : "viewers"}`;
+  if (workspace.workflow.stage === "define") return "No storyboard yet";
+  if (!isActiveVersionTested(workspace)) {
+    const hasPriorHumanEvidence = count > 0 || workspace.reactionHistory.some((set) => set.responses.length > 0);
+    return hasPriorHumanEvidence ? "Untested revision · prior Human Audience evidence preserved" : "Untested revision";
+  }
+  if (workspace.aiPreviews.some((preview) => preview.storyVersionId === workspace.activeVersionId) && count === 0) {
+    return "Tested with AI Audience · no human responses";
+  }
+  if (count === 0) return "Untested";
+  if (count >= RESEARCH_MIN_SAMPLE) return `Human-tested · ${count} ${count === 1 ? "viewer" : "viewers"}`;
   return `Research in progress · ${count}/${RESEARCH_MIN_SAMPLE} minimum`;
+}
+
+export function getActivePreview(workspace: Workspace): AIPreview | null {
+  return workspace.aiPreviews.find((preview) => preview.storyVersionId === workspace.activeVersionId) ?? null;
 }
 
 export function countEndingEmotions(responses: AudienceReaction[]): Partial<Record<ReactionEmotion, number>> {

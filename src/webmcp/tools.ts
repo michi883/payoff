@@ -3,11 +3,12 @@ import {
   countEndingEmotions,
   countTurningBeats,
   getActiveBeats,
+  getActivePreview,
   getEvidenceLabel,
   predictionSummary,
 } from "../domain/selectors";
 import { payoffStore, type PayoffStore } from "../domain/store";
-import { ART_KEYS, NARRATIVE_ROLES, REACTION_EMOTIONS, type BeatDraft } from "../domain/types";
+import { AI_PERSONAS, ART_KEYS, NARRATIVE_ROLES, REACTION_EMOTIONS, type AIPersona, type BeatDraft } from "../domain/types";
 
 const emptySchema = { type: "object", properties: {}, additionalProperties: false };
 
@@ -20,7 +21,7 @@ const beatFields = {
     enum: [...NARRATIVE_ROLES],
     description: "Structural job of this beat.",
   },
-  intended_emotion: { type: "string", maxLength: 32, description: "Emotion this beat should create." },
+  intended_emotion: { type: "string", maxLength: 48, description: "Emotion this beat should create." },
   art_key: {
     type: "string",
     enum: [...ART_KEYS],
@@ -52,6 +53,43 @@ function draftFromInput(input: Record<string, unknown>): BeatDraft {
   };
 }
 
+function previewFromInput(input: Record<string, unknown>) {
+  if (!Array.isArray(input.perspectives)) throw new Error("perspectives is required.");
+  if (!Array.isArray(input.disagreements)) throw new Error("disagreements is required.");
+  const observedArc = input.observed_arc;
+  if (observedArc !== undefined && (!Array.isArray(observedArc) || !observedArc.every((item) => typeof item === "string"))) {
+    throw new Error("observed_arc must be an array of text values.");
+  }
+  return {
+    summary: asString(input, "summary"),
+    perspectives: input.perspectives.map((value) => {
+      if (!value || typeof value !== "object") throw new Error("Each perspective must be an object.");
+      const perspective = value as Record<string, unknown>;
+      return {
+        persona: asString(perspective, "persona") as AIPersona,
+        likelyResponse: asString(perspective, "likely_response"),
+        watchFor: asString(perspective, "watch_for"),
+      };
+    }),
+    disagreements: input.disagreements.map((value) => {
+      if (typeof value !== "string") throw new Error("Each disagreement must be text.");
+      return value;
+    }),
+    likelyEmotionalLanding: optionalString(input, "audience_landing") ?? undefined,
+    targetMatch: (optionalString(input, "target_match") ?? undefined) as "strong" | "partial" | "weak" | "missed" | "unclear" | undefined,
+    strongestBeatId: optionalString(input, "strongest_beat_id") ?? undefined,
+    strongestBeatWhy: optionalString(input, "strongest_beat_why") ?? undefined,
+    weakestBeatId: optionalString(input, "weakest_beat_id") ?? undefined,
+    weakestBeatWhy: optionalString(input, "weakest_beat_why") ?? undefined,
+    mainRisk: optionalString(input, "main_risk") ?? undefined,
+    observedArc: observedArc as string[] | undefined,
+    changedAudienceBeatId: optionalString(input, "changed_audience_beat_id") ?? undefined,
+    changedAudienceWhy: optionalString(input, "changed_audience_why") ?? undefined,
+    confidence: (optionalString(input, "confidence") ?? undefined) as "low" | "medium" | "high" | undefined,
+    confidenceNote: optionalString(input, "confidence_note") ?? undefined,
+  };
+}
+
 function assertNotAborted(options?: WebMCP.ToolExecuteCallbackOptions) {
   if (options?.signal.aborted) throw new DOMException("Tool execution was cancelled.", "AbortError");
 }
@@ -60,8 +98,16 @@ function trim(value: string, max = 150) {
   return value.length <= max ? value : `${value.slice(0, max - 1)}…`;
 }
 
-export function buildPayoffTools(store: PayoffStore = payoffStore): WebMCP.ModelContextTool[] {
-  return [
+export type AgentCapability =
+  | "webmcp-unavailable"
+  | "tools-exposed"
+  | "agent-interacted";
+
+export function buildPayoffTools(
+  store: PayoffStore = payoffStore,
+  onAgentInteraction?: (toolName: string) => void,
+): WebMCP.ModelContextTool[] {
+  const tools: WebMCP.ModelContextTool[] = [
     {
       name: "get_story_brief",
       title: "Read creative brief",
@@ -82,6 +128,8 @@ export function buildPayoffTools(store: PayoffStore = payoffStore): WebMCP.Model
           minimum_sample: RESEARCH_MIN_SAMPLE,
           active_version: state.activeVersionId,
           tested_version: state.testedVersionId,
+          workflow_stage: state.workflow.stage,
+          evidence_priority: "Human Audience evidence outweighs AI Audience simulation; simulation-only conclusions are provisional.",
         };
       },
     },
@@ -116,6 +164,52 @@ export function buildPayoffTools(store: PayoffStore = payoffStore): WebMCP.Model
             intended_emotion: beat.intendedEmotion,
             art_key: beat.artKey,
           })),
+        };
+      },
+    },
+    {
+      name: "get_ai_preview",
+      title: "Read AI Audience result",
+      description:
+        "Read the latest browser-agent-simulated perspective preview for the active story version. This is provisional analysis, never human audience evidence, and never changes state.",
+      inputSchema: emptySchema,
+      annotations: { readOnlyHint: true },
+      execute: async (_input, options) => {
+        assertNotAborted(options);
+        const state = store.getSnapshot();
+        const preview = getActivePreview(state);
+        return preview ? {
+          label: "AI-simulated, not human evidence",
+          provisional: true,
+          story_version: preview.storyVersionId,
+          created_at: preview.createdAt,
+          summary: preview.summary,
+          likely_emotional_landing: preview.likelyEmotionalLanding,
+          target_match: preview.targetMatch,
+          strongest_beat: preview.strongestBeatId ? {
+            beat_id: preview.strongestBeatId,
+            why: preview.strongestBeatWhy,
+          } : undefined,
+          main_risk: preview.mainRisk,
+          weakest_beat: preview.weakestBeatId ? {
+            beat_id: preview.weakestBeatId,
+            why: preview.weakestBeatWhy,
+          } : undefined,
+          observed_arc: preview.observedArc,
+          changed_audience: preview.changedAudienceBeatId ? {
+            beat_id: preview.changedAudienceBeatId,
+            why: preview.changedAudienceWhy,
+          } : undefined,
+          perspectives: preview.perspectives,
+          disagreements: preview.disagreements,
+          confidence: preview.confidence,
+          confidence_note: preview.confidenceNote,
+          investigate_next: preview.investigateNext,
+        } : {
+          label: "AI-simulated, not human evidence",
+          provisional: true,
+          story_version: state.activeVersionId,
+          note: "No AI Audience result has been saved for this story version.",
         };
       },
     },
@@ -157,6 +251,8 @@ export function buildPayoffTools(store: PayoffStore = payoffStore): WebMCP.Model
           : undefined;
 
         return {
+          evidence_kind: "real target-blind human responses",
+          evidence_priority: "strongest basis for diagnosis",
           evidence_status: getEvidenceLabel(state),
           tested_version: state.testedVersionId,
           active_version: state.activeVersionId,
@@ -181,7 +277,12 @@ export function buildPayoffTools(store: PayoffStore = payoffStore): WebMCP.Model
             interpretation: trim(response.interpretation, 90),
             changed_why: trim(response.changedWhy, 90),
           })),
-          note: responses.length === 0 ? "No human responses have been imported. Do not infer audience reaction." : undefined,
+          prior_tests: state.reactionHistory.map((set) => ({
+            story_version: set.storyVersionId,
+            valid_response_count: set.responses.length,
+            collected_at: set.collectedAt,
+          })),
+          note: responses.length === 0 ? "No human responses have been imported for the current prepared test. Do not infer audience reaction." : undefined,
         };
       },
     },
@@ -189,10 +290,11 @@ export function buildPayoffTools(store: PayoffStore = payoffStore): WebMCP.Model
       name: "create_story_beat",
       title: "Create story beat",
       description:
-        "Create one visible storyboard beat after explicit creator direction. Inserts it after a stable beat ID, or at the start when omitted, and persists a new internal version.",
+        "Create one visible beat in a custom storyboard after creator direction. Inserts it after a stable beat ID, or first when omitted, and persists a new immutable version. The board holds six beats.",
       inputSchema: {
         type: "object",
         properties: {
+          beat_id: { type: "string", maxLength: 100, description: "Stable ID for the new beat; use starter blueprint IDs when provided." },
           after_beat_id: { type: "string", maxLength: 100, description: "Existing beat ID to insert after; omit for first." },
           expected_version: { type: "string", maxLength: 100, description: "Active version previously read; rejects stale edits." },
           ...beatFields,
@@ -208,6 +310,7 @@ export function buildPayoffTools(store: PayoffStore = payoffStore): WebMCP.Model
           optionalString(input, "after_beat_id"),
           asString(input, "expected_version"),
           "agent",
+          optionalString(input, "beat_id") ?? undefined,
         );
       },
     },
@@ -263,29 +366,97 @@ export function buildPayoffTools(store: PayoffStore = payoffStore): WebMCP.Model
         );
       },
     },
+    {
+      name: "save_ai_preview",
+      title: "Save AI Audience result",
+      description:
+        "Save provisional AI Audience perspective findings for the exact active story version. This never changes story beats or human evidence and must not be described as real audience response.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          expected_version: { type: "string", maxLength: 100, description: "Exact story version evaluated; rejects stale previews." },
+          summary: { type: "string", maxLength: 500, description: "Provisional cross-perspective takeaway without a universal score." },
+          perspectives: {
+            type: "array",
+            minItems: 2,
+            maxItems: 6,
+            description: "Distinct perspective-based viewer reactions without demographic stereotypes.",
+            items: {
+              type: "object",
+              properties: {
+                persona: { type: "string", enum: [...AI_PERSONAS], description: "Allowed perspective lens." },
+                likely_response: { type: "string", maxLength: 240, description: "Likely response from this lens." },
+                watch_for: { type: "string", maxLength: 240, description: "Specific story risk or strength this lens notices." },
+              },
+              required: ["persona", "likely_response", "watch_for"],
+              additionalProperties: false,
+            },
+          },
+          disagreements: {
+            type: "array",
+            minItems: 1,
+            maxItems: 4,
+            description: "Useful ways the perspectives disagree.",
+            items: { type: "string", maxLength: 240 },
+          },
+          audience_landing: { type: "string", maxLength: 240, description: "Likely overall emotional landing." },
+          target_match: { type: "string", enum: ["strong", "partial", "weak", "missed", "unclear"], description: "Qualitative match to the target." },
+          strongest_beat_id: { type: "string", maxLength: 100, description: "Existing strongest beat ID." },
+          strongest_beat_why: { type: "string", maxLength: 240, description: "Why that beat works best." },
+          weakest_beat_id: { type: "string", maxLength: 100, description: "Existing weakest or confusing beat ID." },
+          weakest_beat_why: { type: "string", maxLength: 240, description: "Why that beat is weak or confusing." },
+          main_risk: { type: "string", maxLength: 300, description: "Most important unintended-response risk." },
+          observed_arc: { type: "array", maxItems: 6, items: { type: "string", maxLength: 80 }, description: "Likely observed emotional sequence." },
+          changed_audience_beat_id: { type: "string", maxLength: 100, description: "Existing beat most responsible for the final response." },
+          changed_audience_why: { type: "string", maxLength: 240, description: "Why that beat changes the audience." },
+          confidence: { type: "string", enum: ["low", "medium", "high"], description: "Simulation confidence." },
+          confidence_note: { type: "string", maxLength: 240, description: "Creator-facing confidence caveat." },
+        },
+        required: ["expected_version", "summary", "perspectives", "disagreements"],
+        additionalProperties: false,
+      },
+      annotations: { readOnlyHint: false },
+      execute: async (input, options) => {
+        assertNotAborted(options);
+        return store.saveAIPreview(previewFromInput(input), asString(input, "expected_version"), "agent");
+      },
+    },
   ];
+
+  return tools.map((tool) => ({
+    ...tool,
+    execute: async (input, options) => {
+      onAgentInteraction?.(tool.name);
+      return tool.execute(input, options);
+    },
+  }));
 }
 
-export type WebMCPStatus = "registering" | "ready" | "unsupported" | "error";
-
 export async function registerPayoffTools(
-  onStatus?: (status: WebMCPStatus) => void,
+  onCapability?: (capability: AgentCapability) => void,
 ): Promise<() => void> {
   if (typeof document.modelContext?.registerTool !== "function") {
-    onStatus?.("unsupported");
+    onCapability?.("webmcp-unavailable");
     return () => undefined;
   }
 
-  onStatus?.("registering");
   const controller = new AbortController();
+  let capability: AgentCapability | null = null;
+  const updateCapability = (next: AgentCapability) => {
+    if (capability === "agent-interacted" && next !== "agent-interacted") return;
+    if (capability === next) return;
+    capability = next;
+    onCapability?.(next);
+  };
+
   try {
-    for (const tool of buildPayoffTools()) {
+    for (const tool of buildPayoffTools(payoffStore, () => updateCapability("agent-interacted"))) {
       await document.modelContext.registerTool(tool, { signal: controller.signal });
     }
-    onStatus?.("ready");
+    updateCapability("tools-exposed");
   } catch (error) {
     controller.abort();
-    onStatus?.("error");
+    updateCapability("webmcp-unavailable");
     throw error;
   }
   return () => controller.abort();

@@ -1,14 +1,10 @@
 import { useEffect, useMemo, useState } from "react";
 import { Brand } from "../components/Brand";
 import { StoryCard } from "../components/StoryCard";
-import {
-  BASELINE_BEATS,
-  BASELINE_CONTENT_HASH,
-  BASELINE_VERSION_ID,
-  PROJECT_BRIEF,
-} from "../domain/seed";
+import { CANONICAL_STUDY } from "../domain/seed";
 import type { BeatReaction, ReactionEmotion, StudyResponseExport } from "../domain/types";
 import { REACTION_EMOTIONS } from "../domain/types";
+import { decodeStudyStimulus } from "./share";
 
 const BEAT_DURATION_MS = 5600;
 type Stage = "intro" | "playing" | "questions" | "complete";
@@ -44,24 +40,29 @@ function responseId() {
 }
 
 export function StudyApp() {
+  const stimulus = useMemo(
+    () => decodeStudyStimulus(new URLSearchParams(window.location.search).get("stimulus")) ?? CANONICAL_STUDY,
+    [],
+  );
+  const beats = stimulus.beats;
   const [stage, setStage] = useState<Stage>("intro");
   const [beatIndex, setBeatIndex] = useState(0);
   const [isSecondPass, setIsSecondPass] = useState(false);
   const [secondPassComplete, setSecondPassComplete] = useState(false);
   const [form, setForm] = useState<FormState>(initialForm);
   const [beatReactions, setBeatReactions] = useState<Record<string, ReactionEmotion | "">>(() =>
-    Object.fromEntries(BASELINE_BEATS.map((beat) => [beat.id, ""])),
+    Object.fromEntries(beats.map((beat) => [beat.id, ""])),
   );
   const [exportValue, setExportValue] = useState<StudyResponseExport | null>(null);
   const [copied, setCopied] = useState(false);
 
-  const currentBeat = BASELINE_BEATS[beatIndex];
-  const progress = ((beatIndex + 1) / BASELINE_BEATS.length) * 100;
+  const currentBeat = beats[beatIndex];
+  const progress = ((beatIndex + 1) / beats.length) * 100;
 
   useEffect(() => {
     if (stage !== "playing") return;
     const timer = window.setTimeout(() => {
-      if (beatIndex < BASELINE_BEATS.length - 1) {
+      if (beatIndex < beats.length - 1) {
         setBeatIndex((index) => index + 1);
       } else {
         setStage("questions");
@@ -69,7 +70,7 @@ export function StudyApp() {
       }
     }, BEAT_DURATION_MS);
     return () => window.clearTimeout(timer);
-  }, [beatIndex, isSecondPass, stage]);
+  }, [beatIndex, beats.length, isSecondPass, stage]);
 
   const canSubmit = useMemo(
     () =>
@@ -99,7 +100,7 @@ export function StudyApp() {
     if (!canSubmit || !form.endingEmotion || !form.predictionPoint || !form.changedBeatId || !form.wasSurprised) return;
 
     const secondPass: BeatReaction[] | undefined = secondPassComplete && Object.values(beatReactions).some(Boolean)
-      ? BASELINE_BEATS.flatMap((beat) => {
+      ? beats.flatMap((beat) => {
           const emotion = beatReactions[beat.id];
           return emotion ? [{ beatId: beat.id, emotion }] : [];
         })
@@ -108,16 +109,16 @@ export function StudyApp() {
     const payload: StudyResponseExport = {
       schema: "payoff-study-response/v1",
       study: {
-        projectId: PROJECT_BRIEF.id,
-        storyVersionId: BASELINE_VERSION_ID,
-        storyHash: BASELINE_CONTENT_HASH,
+        projectId: stimulus.projectId,
+        storyVersionId: stimulus.storyVersionId,
+        storyHash: stimulus.storyHash,
         targetWasHidden: true,
         firstViewingWasUninterrupted: true,
       },
       response: {
         id: responseId(),
-        storyVersionId: BASELINE_VERSION_ID,
-        storyHash: BASELINE_CONTENT_HASH,
+        storyVersionId: stimulus.storyVersionId,
+        storyHash: stimulus.storyHash,
         submittedAt: new Date().toISOString(),
         endingEmotion: form.endingEmotion,
         endingEmotionOther: form.endingEmotionOther.trim() || undefined,
@@ -159,14 +160,14 @@ export function StudyApp() {
         <header className="study-player__header">
           <Brand compact />
           <span>{isSecondPass ? "Optional second viewing" : "Uninterrupted first viewing"}</span>
-          <span>{beatIndex + 1} / {BASELINE_BEATS.length}</span>
+          <span>{beatIndex + 1} / {beats.length}</span>
         </header>
         <div className="study-progress" aria-hidden="true">
           <span style={{ width: `${progress}%` }} />
         </div>
         <section className="study-stage" aria-label={`Story beat ${beatIndex + 1}`}>
           <div className="study-stage__art">
-            <StoryCard beat={currentBeat} compact />
+            <StoryCard beat={{ ...currentBeat, intendedEmotion: "" }} compact />
           </div>
           <p className="study-stage__eyebrow">Beat {String(currentBeat.order).padStart(2, "0")}</p>
           <h1>{currentBeat.title}</h1>
@@ -181,16 +182,16 @@ export function StudyApp() {
   if (stage === "complete" && exportValue) {
     return (
       <main className="study-shell">
-        <header className="study-nav"><Brand /><span>Audience study</span></header>
+        <header className="study-nav"><Brand /><span>Story response</span></header>
         <section className="study-complete panel">
           <span className="kicker">Response ready</span>
           <h1>Thank you for watching.</h1>
-          <p>Your anonymous response is ready to send to the researcher. It contains no name, email address, or device identifier.</p>
+          <p>Your anonymous response is ready to send to the creator. It contains no name, email address, or device identifier.</p>
           <div className="study-complete__actions">
             <button className="primary-button" onClick={downloadResponse}>Download response</button>
-            <button className="secondary-button" onClick={() => void copyResponse()}>{copied ? "Copied" : "Copy response JSON"}</button>
+            <button className="secondary-button" onClick={() => void copyResponse()}>{copied ? "Copied" : "Copy response"}</button>
           </div>
-          <p className="microcopy">Send the downloaded JSON file to the researcher. Only valid files matching this exact story version can be imported.</p>
+          <p className="microcopy">Send the downloaded response file to the creator. Only responses matching this exact story can be imported.</p>
         </section>
       </main>
     );
@@ -199,7 +200,7 @@ export function StudyApp() {
   if (stage === "intro") {
     return (
       <main className="study-shell">
-        <header className="study-nav"><Brand /><span>Audience study</span></header>
+        <header className="study-nav"><Brand /><span>Story response</span></header>
         <section className="study-intro">
           <div>
             <span className="kicker">A short story in six beats</span>
@@ -213,8 +214,8 @@ export function StudyApp() {
             <div className="poster-card poster-card--mid"><span>03</span></div>
             <div className="poster-card poster-card--front">
               <span>01</span>
-              <strong>Nothing<br />Urgent</strong>
-              <i>60-second short</i>
+              <strong>{stimulus.title}</strong>
+              <i>{stimulus.format}</i>
             </div>
           </div>
         </section>
@@ -292,14 +293,14 @@ export function StudyApp() {
               <option value="">Choose one</option>
               <option value="not_predicted">I didn’t predict it</option>
               <option value="before_story">Before the story began</option>
-              {BASELINE_BEATS.map((beat) => <option key={beat.id} value={`beat_${beat.order}`}>During beat {beat.order}</option>)}
+              {beats.map((beat) => <option key={beat.id} value={`beat_${beat.order}`}>During beat {beat.order}</option>)}
             </select>
           </label>
           <label className="field-label">
             Which beat most changed your reaction?
             <select required value={form.changedBeatId} onChange={(event) => updateForm("changedBeatId", event.target.value)}>
               <option value="">Choose one</option>
-              {BASELINE_BEATS.map((beat) => <option key={beat.id} value={beat.id}>Beat {beat.order}: {beat.title}</option>)}
+              {beats.map((beat) => <option key={beat.id} value={beat.id}>Beat {beat.order}: {beat.title}</option>)}
             </select>
           </label>
           <label className="field-label field-label--full">
@@ -318,7 +319,7 @@ export function StudyApp() {
             <button type="button" className="secondary-button" onClick={() => startPlayback(true)}>Watch again</button>
           ) : (
             <div className="second-pass-grid">
-              {BASELINE_BEATS.map((beat) => (
+              {beats.map((beat) => (
                 <label key={beat.id}>
                   <span>{beat.order}. {beat.title}</span>
                   <select value={beatReactions[beat.id]} onChange={(event) => setBeatReactions((current) => ({ ...current, [beat.id]: event.target.value as ReactionEmotion }))}>
