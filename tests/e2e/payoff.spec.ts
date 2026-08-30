@@ -1,5 +1,6 @@
 import { expect, test, type Page, type Route } from "@playwright/test";
 import { Buffer } from "node:buffer";
+import { continuityContentHash } from "../../src/domain/visuals";
 
 type StoryBeatPayload = {
   id: string;
@@ -9,16 +10,72 @@ type StoryBeatPayload = {
   line: string;
   narrativeRole: "setup" | "escalation" | "turn" | "payoff";
   intendedEmotion: string;
-  artKey: string;
+  visual: {
+    source: "canonical" | "generated";
+    key?: string;
+    contentHash: string;
+    spec: BeatVisualPayload;
+  };
 };
 
+type BeatVisualPayload = {
+  setting: string;
+  characters: Array<{ id: string; appearance: string; position: string; action: string }>;
+  focalAction: string;
+  focalObject: string;
+  composition: string;
+  emotionalCue: string;
+  visibleText: string;
+  continuityNotes: string[];
+};
+
+const customContinuity = {
+  characters: [
+    { id: "dad", appearance: "Early 40s, short dark hair, navy jacket, warm brown skin." },
+    { id: "daughter", appearance: "Ten years old, long dark braid, yellow performance dress, warm brown skin." },
+  ],
+  settings: [{ id: "auditorium", appearance: "Small school auditorium with a wooden stage, red curtain, and blue folding seats." }],
+  importantProps: [{ id: "reserved-card", appearance: "White card printed MOM in bold black letters." }],
+  style: "Minimal editorial storyboard illustration with clean shapes, expressive gestures, and a warm limited palette.",
+};
+
+const sceneImage = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Y9ZB4sAAAAASUVORK5CYII=";
+const referenceImage = "data:image/webp;base64,AAAA";
+
+function continuityReference(body: {
+  continuity: typeof customContinuity;
+  continuity_reference?: unknown;
+}) {
+  return body.continuity_reference ?? {
+    content_hash: continuityContentHash(body.continuity),
+    environment_image_data_url: referenceImage,
+    characters: body.continuity.characters.map((character) => ({ id: character.id, image_data_url: referenceImage })),
+  };
+}
+
+function visual(focalAction: string, focalObject: string, characterActions: [string, string], visibleText = ""): BeatVisualPayload {
+  return {
+    setting: customContinuity.settings[0].appearance,
+    characters: [
+      { ...customContinuity.characters[0], position: "In the front row or aisle.", action: characterActions[0] },
+      { ...customContinuity.characters[1], position: "On the stage or looking toward the front row.", action: characterActions[1] },
+    ],
+    focalAction,
+    focalObject,
+    composition: "Use one clear sightline between daughter, Dad, and the important seat so the relationship reads immediately.",
+    emotionalCue: "Let posture and gaze carry the emotional change without decorative ambiguity.",
+    visibleText,
+    continuityNotes: ["Keep Dad, daughter, clothing, auditorium, and seat layout identical across all six beats."],
+  };
+}
+
 const generatedBeats = [
-  { title: "His entrance", action: "Dad strides into the school auditorium just as the lights dim.", line: "Made it.", narrativeRole: "setup", intendedEmotion: "confidence", artKey: "conversation" },
-  { title: "The solo", action: "His daughter steps into the light and searches the front row for him.", line: "", narrativeRole: "setup", intendedEmotion: "anticipation", artKey: "window_light" },
-  { title: "A proud wave", action: "Dad waves broadly; she gives him a small, uncertain smile.", line: "", narrativeRole: "escalation", intendedEmotion: "unease", artKey: "conversation" },
-  { title: "What she watches", action: "During her performance, she keeps looking at the empty chair beside him.", line: "", narrativeRole: "turn", intendedEmotion: "surprise", artKey: "clock" },
-  { title: "The missing person", action: "Dad sees the reserved card on that chair: MOM.", line: "", narrativeRole: "payoff", intendedEmotion: "emotional sting", artKey: "phone_closeup" },
-  { title: "Make room", action: "He moves the card to his lap, holds the empty seat open, and watches quietly with her.", line: "I understand.", narrativeRole: "payoff", intendedEmotion: "warmth", artKey: "window_light" },
+  { title: "His entrance", action: "Dad strides into the school auditorium just as the lights dim.", line: "Made it.", narrativeRole: "setup", intendedEmotion: "confidence", visual: visual("Dad arrives confidently as the performance begins.", "Dad entering the lit aisle.", ["Strides toward the front row.", "Waits behind the curtain."]) },
+  { title: "The solo", action: "His daughter steps into the light and searches the front row for him.", line: "", narrativeRole: "setup", intendedEmotion: "anticipation", visual: visual("The daughter enters the spotlight and scans the front row.", "Her searching gaze.", ["Sits proudly in the front row.", "Steps into the light and searches for Dad."]) },
+  { title: "A proud wave", action: "Dad waves broadly; she gives him a small, uncertain smile.", line: "", narrativeRole: "escalation", intendedEmotion: "unease", visual: visual("Dad waves while his daughter's restrained response signals that something is wrong.", "Their mismatched gestures.", ["Waves broadly from his seat.", "Returns a small uncertain smile."]) },
+  { title: "What she watches", action: "During her performance, she keeps looking at the empty chair beside him.", line: "", narrativeRole: "turn", intendedEmotion: "surprise", visual: visual("The daughter performs but repeatedly looks at the empty chair next to Dad.", "The conspicuously empty front-row chair.", ["Watches her, unaware of the empty chair's meaning.", "Performs while staring toward the empty chair."]) },
+  { title: "The missing person", action: "Dad sees the reserved card on that chair: MOM.", line: "", narrativeRole: "payoff", intendedEmotion: "emotional sting", visual: visual("Dad discovers that the empty chair was reserved for Mom.", "The MOM card on the empty chair.", ["Looks down at the reserved card in realization.", "Watches from the stage."] , "MOM") },
+  { title: "Make room", action: "He moves the card to his lap, holds the empty seat open, and watches quietly with her.", line: "I understand.", narrativeRole: "payoff", intendedEmotion: "warmth", visual: visual("Dad honors the missing person by keeping Mom's chair open while watching his daughter.", "The open seat and card held carefully on his lap.", ["Holds the card and leaves the neighboring chair open.", "Meets his warm, understanding gaze."]) },
 ] as const;
 
 async function openClean(page: Page, path = "/") {
@@ -68,7 +125,14 @@ function revisionResponse(body: {
         line: beat.line,
         narrativeRole: beat.narrativeRole,
         intendedEmotion: beat.intendedEmotion,
-        artKey: beat.artKey,
+        visual: {
+          ...beat.visual.spec,
+          characters: beat.visual.spec.characters.map((character) => character.id === "dad"
+            ? { ...character, action: "Silences a work call, puts the phone away, and looks toward the stage." }
+            : character),
+          focalAction: "Dad visibly ends a work interruption, puts the phone away, and directs his full attention toward the stage.",
+          focalObject: "Dad's lowered work phone and redirected gaze.",
+        },
       },
     }],
   };
@@ -81,8 +145,29 @@ async function fulfillStoryboard(route: Route) {
     body: JSON.stringify({
       title: "The Empty Seat",
       target_payoff: "Confident surprise → small emotional sting → warmth",
+      visual_continuity: customContinuity,
       beats: generatedBeats,
     }),
+  });
+}
+
+async function mockSceneImages(page: Page, delay = 0) {
+  await page.route("**/api/scene", async (route) => {
+    const body = route.request().postDataJSON() as {
+      content_hash: string;
+      continuity: typeof customContinuity;
+      continuity_reference?: unknown;
+    };
+    if (delay > 0) await new Promise((resolve) => setTimeout(resolve, delay));
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        content_hash: body.content_hash,
+        image_data_url: sceneImage,
+        continuity_reference: continuityReference(body),
+      }),
+    });
   });
 }
 
@@ -101,6 +186,8 @@ async function mockPayoffAI(page: Page, delay = 0) {
     await pause();
     await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(revisionResponse(body)) });
   });
+
+  await mockSceneImages(page, Math.min(delay, 120));
 
   await page.route("**/api/audience", async (route) => {
     const body = route.request().postDataJSON() as {
@@ -181,9 +268,9 @@ async function mockPayoffAI(page: Page, delay = 0) {
 }
 
 async function workspaceState(page: Page) {
-  return page.evaluate(() => JSON.parse(localStorage.getItem("payoff.workspace.v3") ?? "null") as {
+  return page.evaluate(() => JSON.parse(localStorage.getItem("payoff.workspace.v4") ?? "null") as {
     activeVersionId: string;
-    versions: Array<{ id: string }>;
+    versions: Array<{ id: string; beats: Array<{ id: string; action: string }> }>;
     aiPreviews: Array<{ storyVersionId: string }>;
     humanReports: Array<{ storyVersionId: string; responseIds: string[] }>;
     reactionSet: { storyVersionId: string; responses: unknown[] };
@@ -235,15 +322,20 @@ test("a custom creator can generate, revise, diagnose, direct, and retest withou
   await openClean(page);
   await createCustomStory(page);
 
+  await expect(page.getByText("Creating scene...", { exact: true }).first()).toBeVisible();
+
   await expect(page.getByRole("heading", { name: "The Empty Seat" })).toBeVisible();
   await expect(page.getByText("45-second vertical short", { exact: true })).toBeVisible();
   await expect(page.getByText("Confident surprise → small emotional sting → warmth", { exact: true })).toBeVisible();
   await expect(page.locator(".story-card h3")).toHaveText(generatedBeats.map((beat) => beat.title));
   await expect(page.getByText("Add first beat", { exact: true })).toHaveCount(0);
   await expect(page.getByText(/WebMCP|Site Tools|ModelContext/i)).toHaveCount(0);
+  await expect(page.locator(".generated-scene")).toHaveCount(6);
 
   const composer = page.getByRole("textbox", { name: "Ask Payoff to change the story" });
   const firstCard = page.locator(".story-card").first();
+  await expect(composer).toHaveCount(0);
+  await page.getByRole("button", { name: "Ask Payoff to revise" }).click();
   await composer.fill("Make Dad seem busy rather than uncaring.");
   await page.getByRole("button", { name: "Ask Payoff", exact: true }).click();
   await expect(page.getByRole("button", { name: "Planning changes..." })).toBeDisabled();
@@ -253,7 +345,9 @@ test("a custom creator can generate, revise, diagnose, direct, and retest withou
   await expect(firstCard).toContainText("Dad strides into the school auditorium");
   await page.getByRole("button", { name: "Cancel", exact: true }).click();
   await expect(firstCard).toContainText("Dad strides into the school auditorium");
+  await expect(composer).toHaveCount(0);
 
+  await page.getByRole("button", { name: "Ask Payoff to revise" }).click();
   await page.getByRole("button", { name: "Ask Payoff", exact: true }).click();
   await expect(page.getByText("Proposed revision · story unchanged", { exact: true })).toBeVisible();
   await page.getByRole("button", { name: "Apply changes" }).click();
@@ -283,14 +377,14 @@ test("a custom creator can generate, revise, diagnose, direct, and retest withou
   await page.getByRole("button", { name: "Hide details" }).click();
   await expect(page.getByText("Strongest beat", { exact: true })).toHaveCount(0);
 
-  const beforeDiagnosis = await page.evaluate(() => localStorage.getItem("payoff.workspace.v3"));
+  const beforeDiagnosis = await page.evaluate(() => localStorage.getItem("payoff.workspace.v4"));
   await page.getByRole("button", { name: "Understand why" }).click();
   await page.getByRole("button", { name: "Why did this feel sad instead of warm?" }).click();
   await page.getByRole("button", { name: "Ask why" }).click();
   await expect(page.getByText("Payoff's diagnosis · story unchanged", { exact: true })).toBeVisible();
   await expect(page.getByText(/guilt easier to retain than warmth/i)).toBeVisible();
   await expect(page.getByRole("heading", { name: "Did it land?" })).toBeVisible();
-  expect(await page.evaluate(() => localStorage.getItem("payoff.workspace.v3"))).toBe(beforeDiagnosis);
+  expect(await page.evaluate(() => localStorage.getItem("payoff.workspace.v4"))).toBe(beforeDiagnosis);
 
   await page.getByRole("button", { name: "Revise the story" }).click();
   await expect(page.getByRole("tab", { name: "Storyboard" })).toHaveAttribute("aria-selected", "true");
@@ -320,6 +414,7 @@ test("a custom creator can generate, revise, diagnose, direct, and retest withou
 
 test("storyboard generation failures preserve the brief and retry cleanly", async ({ page }) => {
   let attempts = 0;
+  await mockSceneImages(page);
   await page.route("**/api/storyboard", async (route) => {
     attempts += 1;
     if (attempts === 1) {
@@ -345,51 +440,203 @@ test("storyboard generation failures preserve the brief and retry cleanly", asyn
   expect(attempts).toBe(2);
 });
 
+test("scene generation failures keep the story usable and retry only that scene", async ({ page }) => {
+  const attempts = new Map<string, number>();
+  const pageErrors: string[] = [];
+  page.on("pageerror", (error) => pageErrors.push(error.message));
+  await page.route("**/api/storyboard", fulfillStoryboard);
+  await page.route("**/api/scene", async (route) => {
+    const body = route.request().postDataJSON() as {
+      content_hash: string;
+      continuity: typeof customContinuity;
+      continuity_reference?: unknown;
+    };
+    const attempt = (attempts.get(body.content_hash) ?? 0) + 1;
+    attempts.set(body.content_hash, attempt);
+    if (attempt === 1) {
+      await route.fulfill({
+        status: 422,
+        contentType: "application/json",
+        body: JSON.stringify({ error: { code: "SCENE_MISMATCH", message: "Scene visual couldn't be created.", retryable: true } }),
+      });
+      return;
+    }
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        content_hash: body.content_hash,
+        image_data_url: sceneImage,
+        continuity_reference: continuityReference(body),
+      }),
+    });
+  });
+  await openClean(page);
+  await createCustomStory(page);
+
+  await expect(page.getByText("Scene visual couldn't be created.", { exact: true })).toHaveCount(6);
+  await expect(page.locator(".story-card h3")).toHaveText(generatedBeats.map((beat) => beat.title));
+  await page.getByRole("button", { name: "Try again" }).first().click();
+  await expect(page.locator(".generated-scene")).toHaveCount(1);
+  await expect(page.getByText("Scene visual couldn't be created.", { exact: true })).toHaveCount(5);
+  expect(pageErrors).toEqual([]);
+});
+
+test("revision proposals are image-independent and applied text survives a scene update failure", async ({ page }) => {
+  let sceneAttempts = 0;
+  let revisedBeatId = "";
+  await page.route("**/api/revise", async (route) => {
+    const body = route.request().postDataJSON() as {
+      expected_version: string;
+      story: { beats: StoryBeatPayload[] };
+    };
+    const beat = body.story.beats[3];
+    revisedBeatId = beat.id;
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        story_version: body.expected_version,
+        kind: "revision",
+        summary: "Move the daughter's final drawing from the refrigerator to the floor.",
+        why: "This preserves her withdrawal while changing the physical action.",
+        clarification_question: null,
+        changes: [{
+          beat_id: beat.id,
+          what_changes: "She leaves the drawing on the floor instead of pinning it to the refrigerator.",
+          replacement: {
+            title: beat.title,
+            action: "The daughter quietly leaves her drawing on the floor beside her, then walks away.",
+            line: beat.line,
+            narrativeRole: beat.narrativeRole,
+            intendedEmotion: beat.intendedEmotion,
+            visual: {
+              ...beat.visual.spec,
+              focalAction: "The daughter places her drawing on the floor, straightens, and walks away without asking Dad.",
+              focalObject: "The drawing lying alone on the kitchen floor.",
+              composition: "Keep the drawing prominent on the floor and separate the daughter from distant Dad.",
+              continuityNotes: [...beat.visual.spec.continuityNotes, "The newest drawing is on the floor, not attached to the refrigerator."],
+            },
+          },
+        }],
+      }),
+    });
+  });
+  await page.route("**/api/scene", async (route) => {
+    sceneAttempts += 1;
+    const body = route.request().postDataJSON() as {
+      content_hash: string;
+      context: { beat_id: string };
+      continuity: typeof customContinuity;
+      continuity_reference?: unknown;
+    };
+    expect(body.context.beat_id).toBe(revisedBeatId);
+    await new Promise((resolve) => setTimeout(resolve, 180));
+    if (sceneAttempts === 1) {
+      await route.fulfill({
+        status: 429,
+        contentType: "application/json",
+        body: JSON.stringify({ error: { code: "SCENE_QUOTA_EXHAUSTED", message: "The Gemini project spending limit has been reached. Increase the limit, then try again.", retryable: true } }),
+      });
+      return;
+    }
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        content_hash: body.content_hash,
+        image_data_url: sceneImage,
+        continuity_reference: {
+          content_hash: continuityContentHash(body.continuity),
+          environment_image_data_url: referenceImage,
+          characters: body.continuity.characters.map((character) => ({ id: character.id, image_data_url: referenceImage })),
+        },
+      }),
+    });
+  });
+
+  await openClean(page);
+  await startExample(page);
+  await page.getByRole("button", { name: "Ask Payoff to revise" }).click();
+  await page.getByRole("textbox", { name: "Ask Payoff to change the story" }).fill("instead of sticking her drawing to the refrigerator, have her stick her drawing to the floower");
+  await page.getByRole("button", { name: "Ask Payoff", exact: true }).click();
+  await expect(page.getByText("Proposed revision · story unchanged", { exact: true })).toBeVisible();
+  expect(sceneAttempts).toBe(0);
+  await expect(page.locator(".story-card").nth(3).getByText("The daughter quietly pins up her own drawing without asking Dad, then turns away.", { exact: true })).toBeVisible();
+
+  await page.getByRole("button", { name: "Apply changes" }).click();
+  await expect(page.getByText("The daughter quietly leaves her drawing on the floor beside her, then walks away.", { exact: true })).toBeVisible();
+  await expect(page.getByText("Updating scene visual...", { exact: true })).toBeVisible();
+  await expect(page.getByText("The story was updated, but the Gemini project spending limit has been reached. Increase the limit, then try again.", { exact: true })).toBeVisible();
+  expect(sceneAttempts).toBe(1);
+  let state = await workspaceState(page);
+  expect(state.versions.find((version) => version.id === state.activeVersionId)?.beats[3].action).toContain("drawing on the floor");
+
+  await page.getByRole("button", { name: "Try again" }).click();
+  await expect(page.locator(".story-card").nth(3).locator(".generated-scene img")).toBeVisible();
+  expect(sceneAttempts).toBe(2);
+
+  await page.getByRole("button", { name: "Undo" }).click();
+  await expect(page.getByText("The daughter quietly pins up her own drawing without asking Dad, then turns away.", { exact: true })).toBeVisible();
+  await expect(page.locator(".story-card").nth(3).locator('img[src*="canonical/quiet_fridge.jpg"]')).toBeVisible();
+  state = await workspaceState(page);
+  expect(state.versions.find((version) => version.id === state.activeVersionId)?.beats[3].action).toContain("pins up her own drawing");
+});
+
 test("the Looks Great storyboard keeps canonical order and hides editing behind one menu", async ({ page }) => {
   await openClean(page);
   await startExample(page);
 
   await expect(page.getByRole("heading", { name: "Looks Great" })).toBeVisible();
   await expect(page.locator(".story-card h3")).toHaveText([
-    "Dad, look", "Again", "The pattern", "She stops asking", "The payoff", "The response",
+    "Dad, look", "Another drawing", "The fridge fills up", "She stops asking", "A drawing of Dad", "He finally looks",
   ]);
+  await expect(page.getByText("Make the story say and feel what you intend.", { exact: true })).toHaveCount(0);
+  await expect(page.getByRole("heading", { name: "Storyboard", exact: true })).toBeVisible();
+  await expect(page.getByRole("textbox", { name: "Ask Payoff to change the story" })).toHaveCount(0);
+  const canonicalImages = page.locator(".story-card .generated-scene img");
+  await expect(canonicalImages).toHaveCount(6);
+  await expect(canonicalImages.nth(0)).toHaveAttribute("src", /\/canonical\/drawing_offer\.jpg$/);
+  await expect(canonicalImages.nth(5)).toHaveAttribute("src", /\/canonical\/crayon_together\.jpg$/);
+  await expect(page.locator(".story-card .generated-scene__text")).toHaveText(["DAY 2", "DAD"]);
+  await expect(page.locator(".story-card blockquote")).toHaveCount(3);
   await expect(page.getByLabel(/More options for/)).toHaveCount(6);
   await expect(page.getByRole("button", { name: /Move .* left|Move .* right/ })).toHaveCount(0);
 
-  await page.getByLabel("More options for Again").click();
+  await page.getByLabel("More options for Another drawing").click();
   await expect(page.getByRole("menuitem", { name: "Ask Payoff to change this beat" })).toBeVisible();
   await expect(page.getByRole("menuitem", { name: "Edit manually" })).toBeVisible();
   await page.getByRole("menuitem", { name: "Ask Payoff to change this beat" }).click();
-  await expect(page.getByRole("button", { name: "Beat 2 · Again" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Beat 2 · Another drawing" })).toBeVisible();
   await expect(page.getByRole("textbox", { name: "Ask Payoff to change the story" })).toBeFocused();
-  await page.getByRole("button", { name: "Beat 2 · Again" }).click();
+  await page.getByRole("button", { name: "Beat 2 · Another drawing" }).click();
 
-  await page.getByLabel("More options for Again").click();
+  await page.getByLabel("More options for Another drawing").click();
   await page.getByRole("menuitem", { name: "Move later" }).click();
   const moveDialog = page.getByRole("alertdialog", { name: "Move this beat later?" });
   await expect(moveDialog).toBeVisible();
   await expect(moveDialog).toContainText("saved as a new version");
   await moveDialog.getByRole("button", { name: "Cancel" }).click();
   await expect(page.locator(".story-card h3")).toHaveText([
-    "Dad, look", "Again", "The pattern", "She stops asking", "The payoff", "The response",
+    "Dad, look", "Another drawing", "The fridge fills up", "She stops asking", "A drawing of Dad", "He finally looks",
   ]);
 
-  await page.getByLabel("More options for Again").click();
+  await page.getByLabel("More options for Another drawing").click();
   await page.getByRole("menuitem", { name: "Move later" }).click();
   await page.getByRole("alertdialog", { name: "Move this beat later?" }).getByRole("button", { name: "Move beat" }).click();
   await expect(page.locator(".story-card h3")).toHaveText([
-    "Dad, look", "The pattern", "Again", "She stops asking", "The payoff", "The response",
+    "Dad, look", "The fridge fills up", "Another drawing", "She stops asking", "A drawing of Dad", "He finally looks",
   ]);
   await page.getByRole("button", { name: "Undo" }).click();
 
-  await page.getByLabel("More options for The pattern").click();
+  await page.getByLabel("More options for The fridge fills up").click();
   await page.getByRole("menuitem", { name: "Delete beat" }).click();
   const deleteDialog = page.getByRole("alertdialog", { name: "Delete this beat?" });
   await expect(deleteDialog).toContainText("You can undo this change");
   await deleteDialog.getByRole("button", { name: "Cancel" }).click();
   await expect(page.locator(".story-card")).toHaveCount(6);
 
-  await page.getByLabel("More options for The payoff").click();
+  await page.getByLabel("More options for A drawing of Dad").click();
   await page.getByRole("menuitem", { name: "Edit manually" }).click();
   await expect(page.getByRole("heading", { name: "Edit beat" })).toBeVisible();
   await expect(page.getByLabel("Beat title")).toBeVisible();
@@ -405,11 +652,11 @@ test("the Looks Great storyboard keeps canonical order and hides editing behind 
 
   await page.getByRole("button", { name: "Undo" }).click();
   await expect(page.locator(".story-card h3")).toHaveText([
-    "Dad, look", "Again", "The pattern", "She stops asking", "The payoff", "The response",
+    "Dad, look", "Another drawing", "The fridge fills up", "She stops asking", "A drawing of Dad", "He finally looks",
   ]);
   await page.reload();
   await expect(page.locator(".story-card h3")).toHaveText([
-    "Dad, look", "Again", "The pattern", "She stops asking", "The payoff", "The response",
+    "Dad, look", "Another drawing", "The fridge fills up", "She stops asking", "A drawing of Dad", "He finally looks",
   ]);
 });
 
@@ -502,15 +749,15 @@ test("Human Audience stays target-blind, version-bound, and separate from AI Aud
   const interpreted = await workspaceState(page);
   expect(interpreted.humanReports).toHaveLength(1);
   expect(interpreted.humanReports[0].responseIds).toEqual(["anonymous-e2e-response"]);
-  const beforeHumanDiagnosis = await page.evaluate(() => localStorage.getItem("payoff.workspace.v3"));
+  const beforeHumanDiagnosis = await page.evaluate(() => localStorage.getItem("payoff.workspace.v4"));
   await page.getByRole("button", { name: "Understand why" }).click();
   await page.getByRole("button", { name: "Why did viewers miss the payoff?" }).click();
   await page.getByRole("button", { name: "Ask why" }).click();
   await expect(page.getByText("Payoff's diagnosis · story unchanged", { exact: true })).toBeVisible();
-  expect(await page.evaluate(() => localStorage.getItem("payoff.workspace.v3"))).toBe(beforeHumanDiagnosis);
+  expect(await page.evaluate(() => localStorage.getItem("payoff.workspace.v4"))).toBe(beforeHumanDiagnosis);
 
   await page.getByRole("tab", { name: "Storyboard" }).click();
-  await page.getByLabel("More options for The response").click();
+  await page.getByLabel("More options for He finally looks").click();
   await page.getByRole("menuitem", { name: "Edit manually" }).click();
   await page.getByLabel("What happens").fill("Dad puts the phone away, apologizes, and lets her choose the next crayon.");
   await page.getByRole("button", { name: "Save beat" }).click();
@@ -665,7 +912,8 @@ test("AI operation failures leave state intact and provide retry", async ({ page
 
   await openClean(page);
   await startExample(page);
-  const initialOrder = ["Dad, look", "Again", "The pattern", "She stops asking", "The payoff", "The response"];
+  const initialOrder = ["Dad, look", "Another drawing", "The fridge fills up", "She stops asking", "A drawing of Dad", "He finally looks"];
+  await page.getByRole("button", { name: "Ask Payoff to revise" }).click();
   await page.getByRole("textbox", { name: "Ask Payoff to change the story" }).fill("Make the opening faster.");
   await page.getByRole("button", { name: "Ask Payoff", exact: true }).click();
   await expect(page.getByRole("alert")).toContainText("Your story was not changed");
@@ -679,12 +927,12 @@ test("AI operation failures leave state intact and provide retry", async ({ page
   await expect(page.getByText("A guilty sting, then warmth.", { exact: true })).toHaveCount(0);
   await page.getByRole("alert").getByRole("button", { name: "Try again" }).click();
   await expect(page.getByText("A guilty sting, then warmth.", { exact: true })).toBeVisible();
-  const beforeDiagnosis = await page.evaluate(() => localStorage.getItem("payoff.workspace.v3"));
+  const beforeDiagnosis = await page.evaluate(() => localStorage.getItem("payoff.workspace.v4"));
   await page.getByRole("button", { name: "Understand why" }).click();
   await page.getByRole("button", { name: "Why was the reveal predictable?" }).click();
   await page.getByRole("button", { name: "Ask why" }).click();
   await expect(page.getByRole("alert")).toContainText("Your story was not changed");
-  expect(await page.evaluate(() => localStorage.getItem("payoff.workspace.v3"))).toBe(beforeDiagnosis);
+  expect(await page.evaluate(() => localStorage.getItem("payoff.workspace.v4"))).toBe(beforeDiagnosis);
 });
 
 test("desktop, tablet, and mobile keep both primary views in bounds", async ({ page }) => {
@@ -731,6 +979,289 @@ test("the first Human Audience viewing is uninterrupted and target-blind", async
   await expect(page.getByText("The creator’s intended response is intentionally hidden.")).toBeVisible();
 });
 
+test("demo=1 repeats the canonical production workflow deterministically without live scene generation", async ({ page }) => {
+  test.setTimeout(120_000);
+  const apiRequests: Array<{ path: string; demoHeader: string | undefined }> = [];
+  page.on("request", (request) => {
+    const url = new URL(request.url());
+    if (url.pathname.startsWith("/api/")) {
+      apiRequests.push({ path: url.pathname, demoHeader: request.headers()["x-payoff-demo"] });
+    }
+  });
+
+  await openClean(page, "/?demo=1&reset=1");
+  const demoIndicator = page.getByRole("img", { name: "Demo mode" });
+  await expect(demoIndicator).toBeVisible();
+  const indicatorBounds = await demoIndicator.boundingBox();
+  expect(indicatorBounds).not.toBeNull();
+  expect(indicatorBounds!.width).toBeLessThanOrEqual(6);
+  expect(indicatorBounds!.height).toBeLessThanOrEqual(6);
+  expect(1440 - indicatorBounds!.x - indicatorBounds!.width).toBeLessThanOrEqual(8);
+  expect(900 - indicatorBounds!.y - indicatorBounds!.height).toBeLessThanOrEqual(8);
+  const outcomes: Array<Record<string, unknown>> = [];
+  const initialTitles = ["Dad, look", "Another drawing", "The fridge fills up", "She stops asking", "A drawing of Dad", "He finally looks"];
+
+  for (let iteration = 0; iteration < 10; iteration += 1) {
+    await page.getByRole("button", { name: "Try example: Looks Great" }).click();
+    await page.getByRole("button", { name: "Create storyboard" }).click();
+    await expect(page.getByRole("heading", { name: "Building your story..." })).toBeVisible();
+    await expect(page.locator(".story-card")).toHaveCount(6);
+    await expect(page.locator(".story-card h3")).toHaveText(initialTitles);
+
+    const originalAssetSources = await page.locator(".story-card .generated-scene img").evaluateAll((images) =>
+      images.map((image) => (image as HTMLImageElement).src));
+    expect(originalAssetSources).toHaveLength(6);
+
+    await page.getByRole("button", { name: "Ask Payoff to revise" }).click();
+    await page.getByRole("textbox", { name: "Ask Payoff to change the story" }).fill("Make the opening faster");
+    await page.getByRole("button", { name: "Ask Payoff", exact: true }).click();
+    await expect(page.getByRole("button", { name: "Planning changes..." })).toBeDisabled();
+    await expect(page.getByText("Proposed revision · story unchanged", { exact: true })).toBeVisible();
+    await expect(page.getByText("Dad answers reflexively before the drawing is fully raised.", { exact: true })).toBeVisible();
+    await page.getByRole("button", { name: "Apply changes" }).click();
+
+    const firstCard = page.locator(".story-card").first();
+    await expect(firstCard.getByRole("heading", { name: "Already answering" })).toBeVisible();
+    await expect(firstCard).toContainText("Before his daughter finishes raising the drawing");
+    await expect(page.getByText("Untested revision", { exact: true })).toBeVisible();
+    await expect(firstCard.getByText("Updating scene visual...", { exact: true })).toBeVisible();
+    const revisedOpening = firstCard.locator(".generated-scene img");
+    await expect(revisedOpening).toBeVisible();
+    await expect(revisedOpening).toHaveAttribute("src", /drawing-offer-faster/);
+    const revisedAssetSources = await page.locator(".story-card .generated-scene img").evaluateAll((images) =>
+      images.map((image) => (image as HTMLImageElement).src));
+    expect(revisedAssetSources.slice(1)).toEqual(originalAssetSources.slice(1));
+
+    const stateAfterRevision = await page.evaluate(() => ({
+      demo: JSON.parse(localStorage.getItem("payoff.demo.workspace.v5") ?? "null") as {
+        activeVersionId: string;
+        versions: Array<{ id: string }>;
+        aiPreviews: unknown[];
+        humanReports: unknown[];
+      },
+      normal: localStorage.getItem("payoff.workspace.v4"),
+    }));
+    expect(stateAfterRevision.normal).toBeNull();
+    expect(stateAfterRevision.demo.activeVersionId).toBe("looks-great-r2");
+    expect(stateAfterRevision.demo.versions.map((version) => version.id)).toEqual(["looks-great-v1", "looks-great-r2"]);
+    expect(stateAfterRevision.demo.aiPreviews).toHaveLength(0);
+    expect(stateAfterRevision.demo.humanReports).toHaveLength(0);
+
+    await page.getByRole("tab", { name: "Test the payoff" }).click();
+    await page.getByRole("button", { name: "Run AI Audience" }).click();
+    await expect(page.getByRole("heading", { name: "Testing the payoff..." })).toBeVisible();
+    await expect(page.getByText("AI Audience · simulated", { exact: true })).toBeVisible();
+    await expect(page.getByText("Strong match", { exact: true })).toBeVisible();
+    await expect(page.getByText("Quick recognition, a clean gut punch, then earned warmth.", { exact: true })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "What landed" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Where it drifted" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Biggest opportunity" })).toBeVisible();
+    await expect(page.getByRole("tab", { name: /Human Audience/ })).toContainText("Rehearsal data · not real viewers");
+    if (iteration === 0) {
+      await page.getByRole("button", { name: "See details" }).click();
+      await expect(page.getByText("Strongest beat", { exact: true })).toBeVisible();
+      await page.getByRole("button", { name: "Hide details" }).click();
+      const beforeDiagnosis = await page.evaluate(() => localStorage.getItem("payoff.demo.workspace.v5"));
+      await page.getByRole("button", { name: "Understand why" }).click();
+      await page.getByRole("button", { name: "Why did this feel sad instead of warm?" }).click();
+      await page.getByRole("button", { name: "Ask why" }).click();
+      await expect(page.getByText("Payoff's diagnosis · story unchanged", { exact: true })).toBeVisible();
+      await expect(page.getByText(/four beats build distance, while one final beat carries the repair/i)).toBeVisible();
+      expect(await page.evaluate(() => localStorage.getItem("payoff.demo.workspace.v5"))).toBe(beforeDiagnosis);
+    }
+
+    await page.getByRole("tab", { name: /Human Audience/ }).click();
+    await expect(page.getByRole("heading", { name: "Organizing rehearsal responses..." })).toBeVisible();
+    await expect(page.getByText("Human Audience · Rehearsal data", { exact: true })).toBeVisible();
+    await expect(page.getByText("Synthetic development fixture. Not real viewer evidence.", { exact: true })).toBeVisible();
+    await expect(page.getByText("A guilty sting followed by reassuring warmth.", { exact: true })).toBeVisible();
+    await expect(page.getByText(/Human Audience · \d+ real viewers?/)).toHaveCount(0);
+    await expect(page.getByRole("heading", { name: "What landed" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Where it drifted" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Biggest opportunity" })).toBeVisible();
+
+    const functionalOutcome = await page.evaluate(() => {
+      const state = JSON.parse(localStorage.getItem("payoff.demo.workspace.v5") ?? "null");
+      return {
+        activeVersionId: state.activeVersionId,
+        storyHash: state.reactionSet.storyHash,
+        evidenceKind: state.reactionSet.evidenceKind,
+        responseIds: state.reactionSet.responses.map((response: { id: string }) => response.id),
+        aiMatch: state.aiPreviews[0].targetMatch,
+        humanMatch: state.humanReports[0].match,
+        humanReportVersion: state.humanReports[0].storyVersionId,
+      };
+    });
+    outcomes.push(functionalOutcome);
+    expect(functionalOutcome).toEqual({
+      activeVersionId: "looks-great-r2",
+      storyHash: "fnv1a:5e561bf4",
+      evidenceKind: "rehearsal",
+      responseIds: [
+        "rehearsal-only-opening-faster-01",
+        "rehearsal-only-opening-faster-02",
+        "rehearsal-only-opening-faster-03",
+        "rehearsal-only-opening-faster-04",
+      ],
+      aiMatch: "strong",
+      humanMatch: "partial",
+      humanReportVersion: "looks-great-r2",
+    });
+
+    await page.getByRole("tab", { name: "Storyboard" }).click();
+    await expect(firstCard.getByRole("heading", { name: "Already answering" })).toBeVisible();
+    await page.getByRole("button", { name: "Start over" }).click();
+    await page.getByRole("alertdialog", { name: "Start a new story?" }).getByRole("button", { name: "Start over" }).click();
+    await expect(page.getByRole("heading", { name: "What story are you trying to tell?" })).toBeVisible();
+  }
+
+  expect(outcomes.every((outcome) => JSON.stringify(outcome) === JSON.stringify(outcomes[0]))).toBe(true);
+  expect(apiRequests.filter((request) => request.path === "/api/revise")).toHaveLength(10);
+  expect(apiRequests.filter((request) => request.path === "/api/audience")).toHaveLength(20);
+  expect(apiRequests.filter((request) => request.path === "/api/diagnose")).toHaveLength(1);
+  expect(apiRequests.filter((request) => request.path === "/api/storyboard")).toHaveLength(0);
+  expect(apiRequests.filter((request) => request.path === "/api/scene")).toHaveLength(0);
+  expect(apiRequests.every((request) => request.demoHeader === "1")).toBe(true);
+});
+
+test("revision composer opens centered, remains in the viewport while dragged, and stays closable", async ({ page }) => {
+  await openClean(page, "/?demo=1&reset=1");
+  await startExample(page);
+  const scrollBefore = await page.evaluate(() => window.scrollY);
+  await page.getByRole("button", { name: "Ask Payoff to revise" }).click();
+  const composer = page.getByRole("dialog", { name: "Ask Payoff to revise" });
+  await expect(composer).toBeVisible();
+  const centered = await composer.boundingBox();
+  expect(centered).not.toBeNull();
+  expect(Math.abs(centered!.x + centered!.width / 2 - 720)).toBeLessThanOrEqual(2);
+  expect(Math.abs(centered!.y + centered!.height / 2 - 450)).toBeLessThanOrEqual(2);
+  expect(await page.evaluate(() => window.scrollY)).toBe(scrollBefore);
+
+  const dragHandle = composer.locator("header");
+  const handleBounds = await dragHandle.boundingBox();
+  expect(handleBounds).not.toBeNull();
+  await page.mouse.move(handleBounds!.x + handleBounds!.width / 2, handleBounds!.y + 20);
+  await page.mouse.down();
+  await page.mouse.move(handleBounds!.x + handleBounds!.width / 2 + 140, handleBounds!.y + 110, { steps: 6 });
+  await page.mouse.up();
+  const moved = await composer.boundingBox();
+  expect(moved).not.toBeNull();
+  expect(moved!.x - centered!.x).toBeGreaterThan(100);
+  expect(moved!.y - centered!.y).toBeGreaterThan(60);
+  expect(moved!.x).toBeGreaterThanOrEqual(12);
+  expect(moved!.y).toBeGreaterThanOrEqual(12);
+  expect(moved!.x + moved!.width).toBeLessThanOrEqual(1428);
+  expect(moved!.y + moved!.height).toBeLessThanOrEqual(888);
+
+  await composer.getByRole("button", { name: "Close revision composer" }).click();
+  await expect(composer).toHaveCount(0);
+  await page.getByRole("button", { name: "Ask Payoff to revise" }).click();
+  const reopened = await composer.boundingBox();
+  expect(reopened).not.toBeNull();
+  expect(Math.abs(reopened!.x + reopened!.width / 2 - 720)).toBeLessThanOrEqual(2);
+  expect(Math.abs(reopened!.y + reopened!.height / 2 - 450)).toBeLessThanOrEqual(2);
+  await page.keyboard.press("Escape");
+  await expect(composer).toHaveCount(0);
+});
+
+test("the punctuated cached revision produces the exact AI Audience fixture", async ({ page }) => {
+  await openClean(page, "/?demo=1&reset=1");
+  await startExample(page);
+  await page.getByRole("button", { name: "Ask Payoff to revise" }).click();
+  await page.getByRole("textbox", { name: "Ask Payoff to change the story" }).fill("Make the opening faster.");
+  await page.getByRole("button", { name: "Ask Payoff", exact: true }).click();
+  await page.getByRole("button", { name: "Apply changes" }).click();
+  await expect(page.locator(".story-card").first().locator(".generated-scene img")).toHaveAttribute("src", /drawing-offer-faster/);
+  await page.getByRole("tab", { name: "Test the payoff" }).click();
+  await page.getByRole("button", { name: "Run AI Audience" }).click();
+  await expect(page.getByText("AI Audience · simulated", { exact: true })).toBeVisible();
+  await expect(page.getByText("Strong match", { exact: true })).toBeVisible();
+  await expect(page.getByText("Quick recognition, a clean gut punch, then earned warmth.", { exact: true })).toBeVisible();
+  await expect(page.getByText(/Missing demo fixture: ai-audience/)).toHaveCount(0);
+});
+
+test("the clean demo baseline has its own cached AI Audience report", async ({ page }) => {
+  await openClean(page, "/?demo=1&reset=1");
+  await startExample(page);
+  await page.getByRole("tab", { name: "Test the payoff" }).click();
+  await page.getByRole("button", { name: "Run AI Audience" }).click();
+  await expect(page.getByText("AI Audience · simulated", { exact: true })).toBeVisible();
+  await expect(page.getByText("Strong match", { exact: true })).toBeVisible();
+  await expect(page.getByText("Familiar amusement, a clear guilty sting, then gentle warmth.", { exact: true })).toBeVisible();
+  await expect(page.getByText(/Missing demo fixture: ai-audience/)).toHaveCount(0);
+  await page.getByRole("button", { name: "Understand why" }).click();
+  await page.getByRole("button", { name: "Why was the reveal predictable?" }).click();
+  await page.getByRole("button", { name: "Ask why" }).click();
+  await expect(page.getByText(/The main opportunity is pace/i)).toBeVisible();
+});
+
+test("demo revision Undo restores the reviewed baseline and cached original asset", async ({ page }) => {
+  await openClean(page, "/?demo=1&reset=1");
+  await startExample(page);
+  const originalSource = await page.locator(".story-card").first().locator("img").getAttribute("src");
+  await page.getByRole("button", { name: "Ask Payoff to revise" }).click();
+  await page.getByRole("textbox", { name: "Ask Payoff to change the story" }).fill("Make the opening faster.");
+  await page.getByRole("button", { name: "Ask Payoff", exact: true }).click();
+  await page.getByRole("button", { name: "Apply changes" }).click();
+  const revisedCard = page.locator(".story-card").first();
+  await expect(revisedCard.getByRole("heading", { name: "Already answering" })).toBeVisible();
+  await expect(revisedCard.locator(".generated-scene img")).toHaveAttribute("src", /drawing-offer-faster/);
+  await expect(revisedCard.getByText("Scene visual couldn't be updated.", { exact: true })).toHaveCount(0);
+  await page.getByRole("button", { name: "Undo" }).click();
+  await expect(page.locator(".story-card").first().getByRole("heading", { name: "Dad, look" })).toBeVisible();
+  await expect(page.locator(".story-card").first().locator("img")).toHaveAttribute("src", originalSource!);
+  const state = await page.evaluate(() => JSON.parse(localStorage.getItem("payoff.demo.workspace.v5") ?? "null"));
+  expect(state.activeVersionId).toBe("looks-great-v1");
+  expect(state.aiPreviews).toHaveLength(0);
+  expect(state.humanReports).toHaveLength(0);
+});
+
+test("demo persistence and hard reset stay isolated from the normal workspace", async ({ page }) => {
+  await openClean(page);
+  await expect(page.getByRole("img", { name: "Demo mode" })).toHaveCount(0);
+  await startExample(page);
+  const normalWorkspace = await page.evaluate(() => localStorage.getItem("payoff.workspace.v4"));
+  expect(normalWorkspace).not.toBeNull();
+
+  await page.goto("/?demo=1&reset=1");
+  await expect(page.getByRole("img", { name: "Demo mode" })).toBeVisible();
+  await startExample(page);
+  await page.getByRole("button", { name: "Ask Payoff to revise" }).click();
+  await page.getByRole("textbox", { name: "Ask Payoff to change the story" }).fill("Make the opening faster");
+  await page.getByRole("button", { name: "Ask Payoff", exact: true }).click();
+  await page.getByRole("button", { name: "Apply changes" }).click();
+  await expect(page.locator(".story-card").first().getByRole("heading", { name: "Already answering" })).toBeVisible();
+  expect(await page.evaluate(() => localStorage.getItem("payoff.workspace.v4"))).toBe(normalWorkspace);
+  expect(await page.evaluate(() => localStorage.getItem("payoff.demo.workspace.v5"))).not.toBeNull();
+
+  await page.goto("/");
+  await expect(page.getByRole("img", { name: "Demo mode" })).toHaveCount(0);
+  await expect(page.locator(".story-card").first().getByRole("heading", { name: "Dad, look" })).toBeVisible();
+  expect(await page.evaluate(() => localStorage.getItem("payoff.workspace.v4"))).toBe(normalWorkspace);
+
+  await page.goto("/?demo=1&reset=1&debug=1");
+  await expect(page.getByRole("heading", { name: "What story are you trying to tell?" })).toBeVisible();
+  const demoReset = await page.evaluate(() => JSON.parse(localStorage.getItem("payoff.demo.workspace.v5") ?? "null"));
+  expect(demoReset).toBeNull();
+  await startExample(page);
+  await expect(page.getByText("Developer details", { exact: true })).toBeVisible();
+  await page.getByText("Developer details", { exact: true }).click();
+  await expect(page.getByText(/Demo cache active/)).toBeVisible();
+  expect(await page.evaluate(() => localStorage.getItem("payoff.workspace.v4"))).toBe(normalWorkspace);
+
+  const currentDemo = await page.evaluate(() => localStorage.getItem("payoff.demo.workspace.v5"));
+  expect(currentDemo).not.toBeNull();
+  await page.evaluate((staleDemo) => {
+    localStorage.setItem("payoff.demo.workspace.v4", staleDemo!);
+    localStorage.removeItem("payoff.demo.workspace.v5");
+  }, currentDemo);
+  await page.goto("/?demo=1");
+  await expect(page.getByRole("heading", { name: "What story are you trying to tell?" })).toBeVisible();
+  expect(await page.evaluate(() => localStorage.getItem("payoff.demo.workspace.v5"))).toBeNull();
+  expect(await page.evaluate(() => localStorage.getItem("payoff.demo.workspace.v4"))).toBe(currentDemo);
+  expect(await page.evaluate(() => localStorage.getItem("payoff.workspace.v4"))).toBe(normalWorkspace);
+});
+
 test("WebMCP remains an opt-in primitive collaboration layer", async ({ page }) => {
   await openClean(page, "/?debug=1");
   await startExample(page);
@@ -772,7 +1303,21 @@ test("WebMCP remains an opt-in primitive collaboration layer", async ({ page }) 
     line: "DAD",
     narrative_role: "turn",
     intended_emotion: "recognition",
-    art_key: "phone_dad_drawing",
+    visual: {
+      setting: "The same family kitchen beside the refrigerator.",
+      characters: [{
+        id: "dad",
+        appearance: "Early 40s, short dark hair, charcoal sweater, dark trousers, gentle face that looks tired when distracted.",
+        position: "Standing beside the refrigerator.",
+        action: "Studies the drawing with his real phone lowered.",
+      }],
+      focal_action: "Dad studies the drawing for the first time and understands that the phone has taken his place.",
+      focal_object: "The daughter's drawing of a phone in Dad's chair.",
+      composition: "Keep Dad's gaze, lowered phone, and drawing on one clear sightline.",
+      emotional_cue: "Specific recognition.",
+      visible_text: "DAD",
+      continuity_notes: ["Keep Dad, his clothes, the phone, and kitchen consistent."],
+    },
   });
 
   expect(names).toEqual(["create_story_beat", "get_ai_preview", "get_audience_reactions", "get_story_brief", "list_story_beats", "move_story_beat", "replace_story_beat", "save_ai_preview"]);

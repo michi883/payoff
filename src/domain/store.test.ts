@@ -3,11 +3,28 @@ import { BASELINE_BEATS, BASELINE_CONTENT_HASH, BASELINE_VERSION_ID, PROJECT_BRI
 import { getAIAudienceResult, getHumanAudienceResult } from "./audience";
 import { getActiveBeats, getActivePreview, getEvidenceLabel, isActiveVersionTested } from "./selectors";
 import { PayoffStore } from "./store";
-import type { StudyResponseExport } from "./types";
+import type { BeatDraft, StoryBeat, StudyResponseExport } from "./types";
+import { EMPTY_VISUAL_CONTINUITY, legacyVisualBrief } from "./visuals";
 import rehearsalResponse1 from "../../fixtures/rehearsal-only/looks-great-response-01.json";
 import rehearsalResponse2 from "../../fixtures/rehearsal-only/looks-great-response-02.json";
 import rehearsalResponse3 from "../../fixtures/rehearsal-only/looks-great-response-03.json";
 import rehearsalResponse4 from "../../fixtures/rehearsal-only/looks-great-response-04.json";
+
+function draft(input: Omit<BeatDraft, "visual"> & { visual?: BeatDraft["visual"] }): BeatDraft {
+  return { ...input, visual: input.visual ?? legacyVisualBrief(input) };
+}
+
+function revisedBeat(beat: StoryBeat, changes: Partial<Omit<BeatDraft, "visual">> & { visual?: BeatDraft["visual"] }): BeatDraft {
+  const action = changes.action ?? beat.action;
+  return {
+    title: changes.title ?? beat.title,
+    action,
+    line: changes.line ?? beat.line,
+    narrativeRole: changes.narrativeRole ?? beat.narrativeRole,
+    intendedEmotion: changes.intendedEmotion ?? beat.intendedEmotion,
+    visual: changes.visual ?? { ...structuredClone(beat.visual.spec), focalAction: action },
+  };
+}
 
 function studyResponse(index: number): StudyResponseExport {
   return {
@@ -71,11 +88,11 @@ describe("PayoffStore", () => {
     expect(getActiveBeats(store.getSnapshot())).toHaveLength(6);
     expect(getActiveBeats(store.getSnapshot()).map((beat) => beat.title)).toEqual([
       "Dad, look",
-      "Again",
-      "The pattern",
+      "Another drawing",
+      "The fridge fills up",
       "She stops asking",
-      "The payoff",
-      "The response",
+      "A drawing of Dad",
+      "He finally looks",
     ]);
   });
 
@@ -86,16 +103,16 @@ describe("PayoffStore", () => {
       corrupted.versions[0].beats[0],
       ...corrupted.versions[0].beats.slice(2),
     ].map((beat, index) => ({ ...beat, order: index + 1 }));
-    localStorage.setItem("payoff.workspace.v3", JSON.stringify(corrupted));
+    localStorage.setItem("payoff.workspace.v4", JSON.stringify(corrupted));
 
     const store = new PayoffStore();
     expect(getActiveBeats(store.getSnapshot()).map((beat) => beat.title)).toEqual([
       "Dad, look",
-      "Again",
-      "The pattern",
+      "Another drawing",
+      "The fridge fills up",
       "She stops asking",
-      "The payoff",
-      "The response",
+      "A drawing of Dad",
+      "He finally looks",
     ]);
     localStorage.clear();
   });
@@ -124,7 +141,7 @@ describe("PayoffStore", () => {
     localStorage.setItem("payoff.workspace.v2", JSON.stringify(legacy));
 
     const store = new PayoffStore();
-    expect(store.getSnapshot().schemaVersion).toBe(3);
+    expect(store.getSnapshot().schemaVersion).toBe(4);
     expect(store.getSnapshot().workflow).toEqual({ stage: "storyboard", source: "starter" });
     expect(store.getSnapshot().activeVersionId).toBe(BASELINE_VERSION_ID);
     expect(getActiveBeats(store.getSnapshot())).toHaveLength(6);
@@ -136,14 +153,13 @@ describe("PayoffStore", () => {
     const original = structuredClone(store.getSnapshot().versions[0]);
     const result = store.replaceBeat(
       "beat-5",
-      {
+      draft({
         title: "He sees it",
         action: "Dad studies the drawing for the first time.",
         line: "DAD",
         narrativeRole: "turn",
         intendedEmotion: "recognition",
-        artKey: "phone_dad_drawing",
-      },
+      }),
       BASELINE_VERSION_ID,
       "agent",
     );
@@ -171,19 +187,19 @@ describe("PayoffStore", () => {
       },
     });
     const expectedVersion = store.getSnapshot().activeVersionId;
-    const drafts = Array.from({ length: 6 }, (_, index) => ({
+    const drafts = Array.from({ length: 6 }, (_, index) => draft({
       title: `Moment ${index + 1}`,
       action: `A visible story action happens in moment ${index + 1}.`,
       line: index === 5 ? "I see you." : "",
       narrativeRole: index < 2 ? "setup" as const : index < 4 ? "escalation" as const : index === 4 ? "turn" as const : "payoff" as const,
       intendedEmotion: index === 5 ? "warmth" : "surprise",
-      artKey: "conversation" as const,
     }));
     const beforeInvalid = structuredClone(store.getSnapshot());
 
     expect(() => store.installGeneratedStoryboard({
       title: "School Night",
       targetSummary: "Surprise → warmth",
+      visualContinuity: EMPTY_VISUAL_CONTINUITY,
       beats: drafts.slice(0, 5),
     }, expectedVersion)).toThrow(/exactly six beats/);
     expect(store.getSnapshot()).toEqual(beforeInvalid);
@@ -191,6 +207,7 @@ describe("PayoffStore", () => {
     const result = store.installGeneratedStoryboard({
       title: "The Front Row",
       targetSummary: "Confident surprise → warmth",
+      visualContinuity: EMPTY_VISUAL_CONTINUITY,
       beats: drafts,
     }, expectedVersion);
 
@@ -221,26 +238,25 @@ describe("PayoffStore", () => {
       target: { setupEmotion: "tension", payoffEmotion: "relief", realization: "Help arrives.", constraints: [] },
     });
     const staleVersion = store.getSnapshot().activeVersionId;
-    store.createBeat({
+    store.createBeat(draft({
       title: "A start",
       action: "The character notices a locked door.",
       line: "",
       narrativeRole: "setup",
       intendedEmotion: "tension",
-      artKey: "conversation",
-    }, null, staleVersion, "human", "first-brief-beat-one");
+    }), null, staleVersion, "human", "first-brief-beat-one");
     const before = structuredClone(store.getSnapshot());
 
     expect(() => store.installGeneratedStoryboard({
       title: "Unexpected overwrite",
       targetSummary: "A changed target",
-      beats: Array.from({ length: 6 }, (_, index) => ({
+      visualContinuity: EMPTY_VISUAL_CONTINUITY,
+      beats: Array.from({ length: 6 }, (_, index) => draft({
         title: `Beat ${index + 1}`,
         action: `Action ${index + 1}.`,
         line: "",
         narrativeRole: index < 2 ? "setup" as const : index < 5 ? "escalation" as const : "payoff" as const,
         intendedEmotion: "relief",
-        artKey: "conversation" as const,
       })),
     }, staleVersion)).toThrow(/Stale story version/);
     expect(store.getSnapshot()).toEqual(before);
@@ -248,18 +264,17 @@ describe("PayoffStore", () => {
 
   it("rejects stale writes without changing state", () => {
     const store = new PayoffStore({ persist: false, initialState: createCanonicalWorkspace() });
-    const draft = {
+    const replacement = draft({
       title: "Replacement",
       action: "A different action.",
       line: "Different line",
       narrativeRole: "turn" as const,
       intendedEmotion: "uneasy",
-      artKey: "window_light" as const,
-    };
-    store.replaceBeat("beat-5", draft, BASELINE_VERSION_ID, "agent");
+    });
+    store.replaceBeat("beat-5", replacement, BASELINE_VERSION_ID, "agent");
     const before = structuredClone(store.getSnapshot());
 
-    expect(() => store.replaceBeat("beat-6", draft, BASELINE_VERSION_ID, "agent")).toThrow(/Stale story version/);
+    expect(() => store.replaceBeat("beat-6", replacement, BASELINE_VERSION_ID, "agent")).toThrow(/Stale story version/);
     expect(store.getSnapshot()).toEqual(before);
   });
 
@@ -271,17 +286,15 @@ describe("PayoffStore", () => {
     const result = store.applyRevision([
       {
         beatId: "beat-1",
-        draft: {
-          ...getActiveBeats(store.getSnapshot())[0],
+        draft: revisedBeat(getActiveBeats(store.getSnapshot())[0], {
           action: "A girl holds up a drawing while Dad handles a ringing work call and points apologetically to the phone.",
-        },
+        }),
       },
       {
         beatId: "beat-2",
-        draft: {
-          ...getActiveBeats(store.getSnapshot())[1],
+        draft: revisedBeat(getActiveBeats(store.getSnapshot())[1], {
           action: "She tries again as Dad finishes typing a time-sensitive message, then he looks toward her.",
-        },
+        }),
       },
     ], BASELINE_VERSION_ID, "Dad now reads as visibly busy rather than uncaring.", "agent");
 
@@ -297,9 +310,57 @@ describe("PayoffStore", () => {
     const beforeStaleAttempt = structuredClone(store.getSnapshot());
     expect(() => store.applyRevision([{
       beatId: "beat-6",
-      draft: { ...getActiveBeats(store.getSnapshot())[5], action: "A different ending." },
+      draft: revisedBeat(getActiveBeats(store.getSnapshot())[5], { action: "A different ending." }),
     }], BASELINE_VERSION_ID, "Stale proposal", "agent")).toThrow(/Stale story version/);
     expect(store.getSnapshot()).toEqual(beforeStaleAttempt);
+  });
+
+  it("rejects revised meaning when the visible scene is left stale", () => {
+    const store = new PayoffStore({ persist: false, initialState: createCanonicalWorkspace() });
+    const original = getActiveBeats(store.getSnapshot())[4];
+
+    expect(() => store.replaceBeat("beat-5", {
+      title: original.title,
+      action: "Dad walks away before noticing the drawing on the refrigerator.",
+      line: original.line,
+      narrativeRole: original.narrativeRole,
+      intendedEmotion: original.intendedEmotion,
+      visual: structuredClone(original.visual.spec),
+    }, BASELINE_VERSION_ID, "agent")).toThrow(/visual direction/);
+    expect(store.getSnapshot().activeVersionId).toBe(BASELINE_VERSION_ID);
+  });
+
+  it("rejects beat visuals that drift from the established character identity", () => {
+    const store = new PayoffStore({ persist: false, initialState: createCanonicalWorkspace() });
+    const original = getActiveBeats(store.getSnapshot())[0];
+    const visual = structuredClone(original.visual.spec);
+    visual.characters[0].appearance = "A different child in different clothes.";
+
+    expect(() => store.replaceBeat("beat-1", {
+      title: original.title,
+      action: original.action,
+      line: original.line,
+      narrativeRole: original.narrativeRole,
+      intendedEmotion: original.intendedEmotion,
+      visual,
+    }, BASELINE_VERSION_ID, "agent")).toThrow(/established appearance/);
+    expect(store.getSnapshot().activeVersionId).toBe(BASELINE_VERSION_ID);
+  });
+
+  it("regenerates only a changed beat hash and undo restores the exact visual contract", () => {
+    const store = new PayoffStore({ persist: false, initialState: createCanonicalWorkspace() });
+    const before = getActiveBeats(store.getSnapshot()).map((beat) => beat.visual.contentHash);
+    const changed = revisedBeat(getActiveBeats(store.getSnapshot())[2], {
+      action: "The refrigerator fills with drawings while Dad answers another message without looking up.",
+    });
+
+    store.replaceBeat("beat-3", changed, BASELINE_VERSION_ID, "agent");
+    const after = getActiveBeats(store.getSnapshot()).map((beat) => beat.visual.contentHash);
+    expect(after[2]).not.toBe(before[2]);
+    expect(after.filter((hash, index) => hash === before[index])).toHaveLength(5);
+
+    store.undoLastMutation();
+    expect(getActiveBeats(store.getSnapshot()).map((beat) => beat.visual.contentHash)).toEqual(before);
   });
 
   it("closes testing without changing story or evidence", () => {
@@ -336,16 +397,15 @@ describe("PayoffStore", () => {
     expect(getEvidenceLabel(store.getSnapshot())).toBe("Human-tested · 14 viewers");
   });
 
-  it("imports the clearly separated Looks Great rehearsal dataset reliably", () => {
+  it("rejects rehearsal evidence collected against the superseded visual story hash", () => {
     const store = new PayoffStore({ persist: false, initialState: createCanonicalWorkspace() });
     expect(store.importStudyResponses([
       rehearsalResponse1,
       rehearsalResponse2,
       rehearsalResponse3,
       rehearsalResponse4,
-    ])).toEqual({ accepted: 4, duplicates: 0, rejected: 0 });
-    expect(store.getSnapshot().reactionSet.responses).toHaveLength(4);
-    expect(store.getSnapshot().reactionSet.responses.every((response) => response.quoteConsent === false)).toBe(true);
+    ])).toEqual({ accepted: 0, duplicates: 0, rejected: 4 });
+    expect(store.getSnapshot().reactionSet.responses).toHaveLength(0);
   });
 
   it("binds Human Audience reports to the exact response set and story version", () => {
@@ -362,10 +422,9 @@ describe("PayoffStore", () => {
     expect(() => store.saveHumanReport(humanReportDraft(), BASELINE_VERSION_ID, [first.response.id])).toThrow(/responses changed/i);
     store.saveHumanReport(humanReportDraft(), BASELINE_VERSION_ID, [first.response.id, second.response.id]);
 
-    store.replaceBeat("beat-6", {
-      ...getActiveBeats(store.getSnapshot())[5],
+    store.replaceBeat("beat-6", revisedBeat(getActiveBeats(store.getSnapshot())[5], {
       action: "Dad puts the phone away and lets her choose the next crayon.",
-    }, BASELINE_VERSION_ID, "human");
+    }), BASELINE_VERSION_ID, "human");
     expect(getHumanAudienceResult(store.getSnapshot())).toBeNull();
     expect(store.getSnapshot().humanReports[0].storyVersionId).toBe(BASELINE_VERSION_ID);
   });
@@ -385,11 +444,11 @@ describe("PayoffStore", () => {
     store.selectStarter();
     expect(getActiveBeats(store.getSnapshot()).map((beat) => beat.title)).toEqual([
       "Dad, look",
-      "Again",
-      "The pattern",
+      "Another drawing",
+      "The fridge fills up",
       "She stops asking",
-      "The payoff",
-      "The response",
+      "A drawing of Dad",
+      "He finally looks",
     ]);
   });
 
@@ -414,14 +473,13 @@ describe("PayoffStore", () => {
   it("archives prior human evidence when a revision is prepared for testing", () => {
     const store = new PayoffStore({ persist: false, initialState: createCanonicalWorkspace() });
     store.importStudyResponses([studyResponse(1)]);
-    store.replaceBeat("beat-6", {
+    store.replaceBeat("beat-6", draft({
       title: "A longer repair",
       action: "Dad sits beside her and begins a drawing of his own.",
       line: "",
       narrativeRole: "payoff",
       intendedEmotion: "warm",
-      artKey: "crayon_together",
-    }, BASELINE_VERSION_ID, "agent");
+    }), BASELINE_VERSION_ID, "agent");
     store.prepareHumanTest();
 
     expect(store.getSnapshot().reactionSet.responses).toHaveLength(0);
@@ -436,14 +494,13 @@ describe("PayoffStore", () => {
   it("restores baseline evidence when undo returns a prepared revision to the canonical story", () => {
     const store = new PayoffStore({ persist: false, initialState: createCanonicalWorkspace() });
     store.importStudyResponses([studyResponse(1)]);
-    store.replaceBeat("beat-6", {
+    store.replaceBeat("beat-6", draft({
       title: "A longer repair",
       action: "Dad sits beside her and begins a drawing of his own.",
       line: "",
       narrativeRole: "payoff",
       intendedEmotion: "warm",
-      artKey: "crayon_together",
-    }, BASELINE_VERSION_ID, "agent");
+    }), BASELINE_VERSION_ID, "agent");
     store.prepareHumanTest();
 
     store.undoLastMutation();
@@ -494,10 +551,9 @@ describe("PayoffStore", () => {
       confidenceNote: "A simulated early check, not human evidence.",
     }, BASELINE_VERSION_ID);
     const savedId = getActivePreview(store.getSnapshot())?.id;
-    store.replaceBeat("beat-6", {
-      ...getActiveBeats(store.getSnapshot())[5],
+    store.replaceBeat("beat-6", revisedBeat(getActiveBeats(store.getSnapshot())[5], {
       action: "Dad puts the phone away, apologizes, and lets her guide the next drawing.",
-    }, BASELINE_VERSION_ID, "human");
+    }), BASELINE_VERSION_ID, "human");
 
     expect(store.getSnapshot().aiPreviews).toHaveLength(1);
     expect(store.getSnapshot().aiPreviews[0].id).toBe(savedId);
@@ -534,15 +590,13 @@ describe("PayoffStore", () => {
 
   it("restores a previous version through History as a new immutable revision", () => {
     const store = new PayoffStore({ persist: false, initialState: createCanonicalWorkspace() });
-    const firstEdit = store.replaceBeat("beat-1", {
-      ...getActiveBeats(store.getSnapshot())[0],
+    const firstEdit = store.replaceBeat("beat-1", revisedBeat(getActiveBeats(store.getSnapshot())[0], {
       action: "Dad is finishing a work call when she approaches with the drawing.",
-    }, BASELINE_VERSION_ID, "human");
+    }), BASELINE_VERSION_ID, "human");
     const preserved = structuredClone(store.getSnapshot().versions.find((version) => version.id === firstEdit.activeVersionId));
-    const secondEdit = store.replaceBeat("beat-2", {
-      ...getActiveBeats(store.getSnapshot())[1],
+    const secondEdit = store.replaceBeat("beat-2", revisedBeat(getActiveBeats(store.getSnapshot())[1], {
       action: "She waits until the call ends, then tries one more time.",
-    }, firstEdit.activeVersionId, "human");
+    }), firstEdit.activeVersionId, "human");
 
     const restored = store.restoreVersion(firstEdit.activeVersionId, secondEdit.activeVersionId, "human");
     expect(restored.activeVersionId).not.toBe(firstEdit.activeVersionId);
@@ -565,14 +619,13 @@ describe("PayoffStore", () => {
     });
     for (let index = 1; index <= 6; index += 1) {
       const after = index === 1 ? null : `custom-beat-${index - 1}`;
-      store.createBeat({
+      store.createBeat(draft({
         title: `Beat ${index}`,
         action: `Visible action ${index}.`,
         line: "",
         narrativeRole: index < 3 ? "setup" : index < 5 ? "escalation" : index === 5 ? "turn" : "payoff",
         intendedEmotion: index === 6 ? "relieved" : "curious",
-        artKey: "conversation",
-      }, after, store.getSnapshot().activeVersionId, "agent", `custom-beat-${index}`);
+      }), after, store.getSnapshot().activeVersionId, "agent", `custom-beat-${index}`);
     }
     const stimulus = store.prepareHumanTest();
     const response: StudyResponseExport = {
@@ -608,14 +661,13 @@ describe("PayoffStore", () => {
     store.openTesting();
     expect(store.getSnapshot().workflow.stage).toBe("test");
 
-    store.replaceBeat("beat-5", {
+    store.replaceBeat("beat-5", draft({
       title: "He sees it",
       action: "Dad studies the drawing for the first time.",
       line: "DAD",
       narrativeRole: "turn",
       intendedEmotion: "recognition",
-      artKey: "phone_dad_drawing",
-    }, BASELINE_VERSION_ID, "agent");
+    }), BASELINE_VERSION_ID, "agent");
 
     expect(store.getSnapshot().workflow.stage).toBe("storyboard");
     expect(store.getSnapshot().activeVersionId).not.toBe(store.getSnapshot().testedVersionId);

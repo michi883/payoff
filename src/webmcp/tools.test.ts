@@ -5,6 +5,26 @@ import { buildPayoffTools, registerPayoffTools, type AgentCapability } from "./t
 
 const options = { signal: new AbortController().signal };
 
+function visualInput(focalAction: string) {
+  return {
+    setting: "The same family kitchen beside the refrigerator.",
+    characters: [
+      {
+        id: "dad",
+        appearance: "Early 40s, short dark hair, charcoal sweater, dark trousers, gentle face that looks tired when distracted.",
+        position: "Standing beside the refrigerator.",
+        action: "Studies the drawing with his phone lowered.",
+      },
+    ],
+    focal_action: focalAction,
+    focal_object: "The daughter's newest drawing.",
+    composition: "Keep Dad's gaze, lowered phone, and drawing on one clear sightline.",
+    emotional_cue: "Specific recognition.",
+    visible_text: "DAD",
+    continuity_notes: ["Keep Dad, his clothes, the phone, and the kitchen consistent."],
+  };
+}
+
 describe("Payoff WebMCP tools", () => {
   it("exposes primitive story and preview tools with correct annotations", () => {
     const tools = buildPayoffTools(new PayoffStore({ persist: false }));
@@ -46,12 +66,15 @@ describe("Payoff WebMCP tools", () => {
       line: "DAD",
       narrative_role: "turn",
       intended_emotion: "recognition",
-      art_key: "phone_dad_drawing",
+      visual: visualInput("Dad studies the drawing for the first time and understands what it depicts."),
     }, options) as { activeVersionId: string };
 
     expect(result.activeVersionId).toBe(store.getSnapshot().activeVersionId);
-    expect(store.getSnapshot().versions[0].beats[4].title).toBe("The payoff");
+    expect(store.getSnapshot().versions[0].beats[4].title).toBe("A drawing of Dad");
     expect(store.getSnapshot().versions.at(-1)?.beats[4].title).toBe("He sees it");
+    expect(store.getSnapshot().versions.at(-1)?.beats[4].visual.contentHash).not.toBe(
+      store.getSnapshot().versions[0].beats[4].visual.contentHash,
+    );
   });
 
   it("reads the locally created deterministic starter without agent build calls", async () => {
@@ -101,7 +124,8 @@ describe("Payoff WebMCP tools", () => {
     for (const name of ["get_story_brief", "list_story_beats", "get_audience_reactions"]) {
       const tool = buildPayoffTools(store).find((candidate) => candidate.name === name)!;
       const result = await tool.execute({}, options);
-      expect(JSON.stringify(result).length, `starter ${name}`).toBeLessThanOrEqual(1500);
+      const budget = name === "list_story_beats" ? 12_000 : 1_500;
+      expect(JSON.stringify(result).length, `starter ${name}`).toBeLessThanOrEqual(budget);
     }
   });
 

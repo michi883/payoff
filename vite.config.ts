@@ -8,7 +8,13 @@ export default defineConfig(({ mode }) => {
     base: process.env.GITHUB_ACTIONS ? "/payoff/" : "/",
     plugins: [
       react(),
-      payoffApiPlugin({ apiKey: env.OPENAI_API_KEY, model: env.OPENAI_MODEL }),
+      payoffApiPlugin({
+        apiKey: env.OPENAI_API_KEY,
+        model: env.OPENAI_MODEL,
+        geminiApiKey: env.GEMINI_API_KEY,
+        geminiImageModel: env.GEMINI_IMAGE_MODEL,
+        sceneReviewModel: env.OPENAI_SCENE_REVIEW_MODEL,
+      }),
     ],
     test: {
       environment: "jsdom",

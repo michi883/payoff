@@ -3,6 +3,7 @@ import {
   BASELINE_CONTENT_HASH,
   BASELINE_VERSION_ID,
   CANONICAL_STUDY,
+  LOOKS_GREAT_CONTINUITY,
   PROJECT_BRIEF,
   createCanonicalWorkspace,
   createSeedWorkspace,
@@ -24,15 +25,19 @@ import type {
   StudyResponseExport,
   StudyStimulus,
   Workspace,
+  VisualContinuity,
 } from "./types";
-import { AI_PERSONAS, ART_KEYS, NARRATIVE_ROLES, REACTION_EMOTIONS } from "./types";
+import { AI_PERSONAS, NARRATIVE_ROLES, REACTION_EMOTIONS } from "./types";
+import { EMPTY_VISUAL_CONTINUITY, generatedArtwork, legacyVisualBrief, sameVisualSpec } from "./visuals";
+import { runtimeConfig } from "../runtime";
 
-const STORAGE_KEY = "payoff.workspace.v3";
-const LEGACY_STORAGE_KEY = "payoff.workspace.v2";
+export const WORKSPACE_STORAGE_KEY = "payoff.workspace.v4";
+export const DEMO_WORKSPACE_STORAGE_KEY = "payoff.demo.workspace.v5";
+const LEGACY_STORAGE_KEYS = ["payoff.workspace.v3", "payoff.workspace.v2"];
 const MAX_BEATS = 6;
 
 type Listener = () => void;
-type StoreOptions = { persist?: boolean; initialState?: Workspace };
+type StoreOptions = { persist?: boolean; initialState?: Workspace; storageKey?: string; resetOnLoad?: boolean };
 
 export type ImportResult = { accepted: number; duplicates: number; rejected: number };
 
@@ -99,16 +104,83 @@ function safeText(value: unknown, field: string, maxLength: number, allowEmpty =
   return clean;
 }
 
+function validateContinuity(input: VisualContinuity): VisualContinuity {
+  const validateEntries = (entries: VisualContinuity["characters"], field: string, max: number) => {
+    if (!Array.isArray(entries) || entries.length > max) throw new Error(`${field} has too many entries.`);
+    const seen = new Set<string>();
+    return entries.map((entry) => {
+      const id = safeText(entry.id, `${field} ID`, 80);
+      const appearance = safeText(entry.appearance, `${field} appearance`, 280);
+      if (seen.has(id.toLowerCase())) throw new Error(`${field} IDs must be unique.`);
+      seen.add(id.toLowerCase());
+      return { id, appearance };
+    });
+  };
+  return {
+    characters: validateEntries(input.characters, "Characters", 8),
+    settings: validateEntries(input.settings, "Settings", 6),
+    importantProps: validateEntries(input.importantProps, "Important props", 8),
+    timeOfDay: safeText(input.timeOfDay ?? "Consistent neutral time across the sequence unless a beat explicitly changes it.", "Time of day", 180),
+    lighting: safeText(input.lighting ?? "Stable neutral storyboard lighting with no arbitrary color-temperature shift.", "Lighting baseline", 240),
+    style: safeText(input.style, "Visual style", 320),
+  };
+}
+
+function validateVisual(input: BeatDraft["visual"]): BeatDraft["visual"] {
+  if (!input || typeof input !== "object") throw new Error("A structured visual brief is required.");
+  if (!Array.isArray(input.characters) || input.characters.length > 8) throw new Error("A visual brief may include up to eight characters.");
+  if (!Array.isArray(input.continuityNotes) || input.continuityNotes.length > 6) throw new Error("A visual brief may include up to six continuity notes.");
+  return {
+    setting: safeText(input.setting, "Visual setting", 280),
+    characters: input.characters.map((character) => ({
+      id: safeText(character.id, "Visual character ID", 80),
+      appearance: safeText(character.appearance, "Visual character appearance", 260),
+      position: safeText(character.position, "Visual character position", 220),
+      action: safeText(character.action, "Visual character action", 260),
+    })),
+    focalAction: safeText(input.focalAction, "Visual focal action", 320),
+    focalObject: safeText(input.focalObject, "Visual focal object", 260),
+    composition: safeText(input.composition, "Visual composition", 360),
+    emotionalCue: safeText(input.emotionalCue, "Visual emotional cue", 220),
+    visibleText: safeText(input.visibleText, "Visible text", 80, true),
+    continuityNotes: input.continuityNotes.map((note) => safeText(note, "Continuity note", 240)),
+  };
+}
+
 function validateDraft(input: BeatDraft): BeatDraft {
   if (!NARRATIVE_ROLES.includes(input.narrativeRole)) throw new Error("Unknown narrative role.");
-  if (!ART_KEYS.includes(input.artKey)) throw new Error("Unknown art key.");
   return {
     title: safeText(input.title, "Title", 48),
     action: safeText(input.action, "Action", 180),
     line: safeText(input.line, "Line", 100, true),
     intendedEmotion: safeText(input.intendedEmotion, "Intended emotion", 48),
     narrativeRole: input.narrativeRole,
-    artKey: input.artKey,
+    visual: validateVisual(input.visual),
+  };
+}
+
+function beatFromDraft(
+  draft: BeatDraft,
+  id: string,
+  order: number,
+  continuity: VisualContinuity,
+  previous?: StoryBeat,
+): StoryBeat {
+  const valid = validateDraft(draft);
+  for (const character of valid.visual.characters) {
+    const established = continuity.characters.find((candidate) => candidate.id.toLowerCase() === character.id.toLowerCase());
+    if (!established) throw new Error(`Visual character “${character.id}” is not defined in this story's continuity.`);
+    if (established.appearance !== character.appearance) {
+      throw new Error(`Visual character “${character.id}” must keep the established appearance.`);
+    }
+  }
+  return {
+    ...valid,
+    id,
+    order,
+    visual: previous && sameVisualSpec(previous.visual.spec, valid.visual)
+      ? structuredClone(previous.visual)
+      : generatedArtwork(valid.visual, continuity),
   };
 }
 
@@ -129,13 +201,14 @@ function validateBrief(input: ProjectBrief): ProjectBrief {
   };
 }
 
-function isCanonicalStory(project: ProjectBrief, beats: StoryBeat[]) {
+function isCanonicalStory(project: ProjectBrief, beats: StoryBeat[], continuity: VisualContinuity) {
   const normalized = normalizeBeats(beats);
   return project.id === PROJECT_BRIEF.id && normalized.length === BASELINE_BEATS.length && normalized.every((beat, index) => {
     const expected = BASELINE_BEATS[index];
     return beat.id === expected.id && beat.order === expected.order && beat.title === expected.title &&
       beat.action === expected.action && beat.line === expected.line && beat.narrativeRole === expected.narrativeRole &&
-      beat.intendedEmotion === expected.intendedEmotion && beat.artKey === expected.artKey;
+      beat.intendedEmotion === expected.intendedEmotion && JSON.stringify(beat.visual) === JSON.stringify(expected.visual) &&
+      JSON.stringify(continuity) === JSON.stringify(LOOKS_GREAT_CONTINUITY);
   });
 }
 
@@ -147,6 +220,7 @@ function emptyVersion(projectId: string): StoryVersion {
     createdAt: now(),
     source: "system",
     reason: "Brief confirmed; storyboard empty",
+    visualContinuity: structuredClone(EMPTY_VISUAL_CONTINUITY),
     beats: [],
   };
 }
@@ -222,11 +296,11 @@ function hasWorkspaceCollections(value: unknown): value is Record<string, unknow
 function recoverStarterWorkspace(workspace: Workspace): Workspace {
   if (workspace.workflow.source !== "starter" || workspace.workflow.stage === "define") return workspace;
   const active = workspace.versions.find((version) => version.id === workspace.activeVersionId);
-  if (active?.id === BASELINE_VERSION_ID && !isCanonicalStory(workspace.project, active.beats)) {
+  if (active?.id === BASELINE_VERSION_ID && !isCanonicalStory(workspace.project, active.beats, active.visualContinuity)) {
     return {
       ...workspace,
       versions: workspace.versions.map((version) => version.id === BASELINE_VERSION_ID
-        ? { ...version, beats: structuredClone(BASELINE_BEATS) }
+        ? { ...version, visualContinuity: structuredClone(LOOKS_GREAT_CONTINUITY), beats: structuredClone(BASELINE_BEATS) }
         : version),
     };
   }
@@ -244,12 +318,81 @@ function recoverStarterWorkspace(workspace: Workspace): Workspace {
   return recovered;
 }
 
+function migrateLegacyBeat(value: unknown, continuity: VisualContinuity): StoryBeat | null {
+  if (!value || typeof value !== "object") return null;
+  const beat = value as Record<string, unknown>;
+  try {
+    const title = safeText(beat.title, "Title", 48);
+    const action = safeText(beat.action, "Action", 180);
+    const line = safeText(beat.line, "Line", 100, true);
+    const narrativeRole = beat.narrativeRole;
+    if (!NARRATIVE_ROLES.includes(narrativeRole as StoryBeat["narrativeRole"])) return null;
+    const intendedEmotion = safeText(beat.intendedEmotion, "Intended emotion", 48);
+    const visual = legacyVisualBrief({ title, action, line, intendedEmotion });
+    return {
+      id: safeText(beat.id, "Beat ID", 100),
+      order: typeof beat.order === "number" ? beat.order : 1,
+      title,
+      action,
+      line,
+      narrativeRole: narrativeRole as StoryBeat["narrativeRole"],
+      intendedEmotion,
+      visual: generatedArtwork(visual, continuity),
+    };
+  } catch {
+    return null;
+  }
+}
+
+function migrateLegacyWorkspace(parsed: Record<string, unknown>): Workspace | null {
+  const legacy = parsed as Record<string, unknown> & {
+    workflow: { stage: "choose" | "intent" | "define" | "storyboard" | "test"; source: "starter" | "custom" | null };
+    versions: Array<Record<string, unknown>>;
+  };
+  const starter = legacy.workflow.source === "starter";
+  const continuity = starter ? LOOKS_GREAT_CONTINUITY : EMPTY_VISUAL_CONTINUITY;
+  const versions = legacy.versions.flatMap((version) => {
+    const rawBeats = Array.isArray(version.beats) ? version.beats : [];
+    const beats = version.id === BASELINE_VERSION_ID && starter
+      ? structuredClone(BASELINE_BEATS)
+      : rawBeats.map((beat) => migrateLegacyBeat(beat, continuity)).filter((beat): beat is StoryBeat => Boolean(beat));
+    if (beats.length !== rawBeats.length) return [];
+    return [{ ...version, visualContinuity: structuredClone(continuity), beats } as unknown as StoryVersion];
+  });
+  if (versions.length !== legacy.versions.length) return null;
+  const previousActiveId = String(parsed.activeVersionId ?? "");
+  const previousActive = versions.find((version) => version.id === previousActiveId);
+  if (!previousActive) return null;
+  const nextNumber = Number(parsed.revisionSequence ?? 0) + 1;
+  const migratedActive: StoryVersion = {
+    ...structuredClone(previousActive),
+    id: `${(parsed.project as ProjectBrief).id}-r${nextNumber}`,
+    number: nextNumber,
+    parentVersionId: previousActive.id,
+    createdAt: now(),
+    source: "system",
+    reason: "Updated storyboard visuals to the scene-specific format",
+  };
+  return recoverStarterWorkspace({
+    ...parsed,
+    schemaVersion: 4,
+    workflow: {
+      stage: legacy.workflow.stage === "choose" || legacy.workflow.stage === "intent" ? "define" : legacy.workflow.stage,
+      source: legacy.workflow.source,
+    },
+    activeVersionId: migratedActive.id,
+    revisionSequence: nextNumber,
+    versions: [...versions, migratedActive],
+    humanReports: Array.isArray(parsed.humanReports) ? parsed.humanReports : [],
+  } as unknown as Workspace);
+}
+
 function parseWorkspace(raw: string | null): Workspace | null {
   if (!raw) return null;
   try {
     const parsed = JSON.parse(raw) as Record<string, unknown>;
     if (!hasWorkspaceCollections(parsed)) return null;
-    if (parsed.schemaVersion === 3) {
+    if (parsed.schemaVersion === 4) {
       const workspace = {
         ...parsed,
         humanReports: Array.isArray(parsed.humanReports) ? parsed.humanReports : [],
@@ -257,28 +400,16 @@ function parseWorkspace(raw: string | null): Workspace | null {
       if (!["define", "storyboard", "test"].includes(workspace.workflow.stage)) return null;
       return recoverStarterWorkspace(workspace);
     }
-    if (parsed.schemaVersion !== 2) return null;
-    const legacy = parsed as Record<string, unknown> & {
-      workflow: { stage: "choose" | "intent" | "storyboard"; source: "starter" | "custom" | null };
-    };
-    const migrated = {
-      ...legacy,
-      schemaVersion: 3,
-      humanReports: [],
-      workflow: {
-        stage: legacy.workflow.stage === "choose" ? "define" : "storyboard",
-        source: legacy.workflow.source,
-      },
-    } as unknown as Workspace;
-    return recoverStarterWorkspace(migrated);
+    if (parsed.schemaVersion !== 2 && parsed.schemaVersion !== 3) return null;
+    return migrateLegacyWorkspace(parsed);
   } catch {
     return null;
   }
 }
 
-function loadWorkspace(): Workspace {
-  return parseWorkspace(localStorage.getItem(STORAGE_KEY))
-    ?? parseWorkspace(localStorage.getItem(LEGACY_STORAGE_KEY))
+function loadWorkspace(storageKey: string, includeLegacy: boolean): Workspace {
+  return parseWorkspace(localStorage.getItem(storageKey))
+    ?? (includeLegacy ? LEGACY_STORAGE_KEYS.map((key) => parseWorkspace(localStorage.getItem(key))).find(Boolean) : null)
     ?? createSeedWorkspace();
 }
 
@@ -286,13 +417,16 @@ export class PayoffStore {
   private state: Workspace;
   private listeners = new Set<Listener>();
   private persist: boolean;
+  private storageKey: string;
 
   constructor(options: StoreOptions = {}) {
     this.persist = options.persist ?? true;
+    this.storageKey = options.storageKey ?? (runtimeConfig.demoMode ? DEMO_WORKSPACE_STORAGE_KEY : WORKSPACE_STORAGE_KEY);
+    if (this.persist && options.resetOnLoad && typeof localStorage !== "undefined") localStorage.removeItem(this.storageKey);
     this.state = options.initialState
       ? structuredClone(options.initialState)
       : this.persist && typeof localStorage !== "undefined"
-        ? loadWorkspace()
+        ? loadWorkspace(this.storageKey, this.storageKey === WORKSPACE_STORAGE_KEY)
         : createSeedWorkspace();
   }
 
@@ -305,7 +439,7 @@ export class PayoffStore {
 
   private publish(next: Workspace) {
     this.state = next;
-    if (this.persist && typeof localStorage !== "undefined") localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
+    if (this.persist && typeof localStorage !== "undefined") localStorage.setItem(this.storageKey, JSON.stringify(next));
     this.listeners.forEach((listener) => listener());
   }
 
@@ -351,7 +485,7 @@ export class PayoffStore {
     const project = validateBrief(brief);
     const version = emptyVersion(project.id);
     this.publish({
-      schemaVersion: 3,
+      schemaVersion: 4,
       workflow: { stage: "storyboard", source: "custom" },
       project,
       activeVersionId: version.id,
@@ -368,7 +502,7 @@ export class PayoffStore {
   }
 
   installGeneratedStoryboard(
-    input: { title: string; targetSummary: string; beats: BeatDraft[] },
+    input: { title: string; targetSummary: string; visualContinuity: VisualContinuity; beats: BeatDraft[] },
     expectedVersion: string,
     actor: Actor = "agent",
   ): CommandResult {
@@ -378,11 +512,13 @@ export class PayoffStore {
     if (input.beats.length !== MAX_BEATS) throw new Error("A generated storyboard must contain exactly six beats.");
     const title = safeText(input.title, "Story title", 60);
     const targetSummary = safeText(input.targetSummary, "Target payoff", 160);
-    const beats = input.beats.map((draft, index): StoryBeat => ({
-      ...validateDraft(draft),
-      id: `${this.state.project.id}-beat-${index + 1}`,
-      order: index + 1,
-    }));
+    const visualContinuity = validateContinuity(input.visualContinuity);
+    const beats = input.beats.map((draft, index) => beatFromDraft(
+      draft,
+      `${this.state.project.id}-beat-${index + 1}`,
+      index + 1,
+      visualContinuity,
+    ));
     const number = this.state.revisionSequence + 1;
     const version: StoryVersion = {
       id: `${this.state.project.id}-r${number}`,
@@ -391,6 +527,7 @@ export class PayoffStore {
       createdAt: now(),
       source: actor,
       reason: "Created the first storyboard draft",
+      visualContinuity,
       beats,
     };
     const activity: ActivityEntry = {
@@ -432,11 +569,12 @@ export class PayoffStore {
     action: "create_beat" | "replace_beat" | "move_beat" | "delete_beat" | "undo" | "restore_version",
     message: string,
     affectedBeatIds: string[],
+    visualContinuity: VisualContinuity = getActiveVersion(this.state).visualContinuity,
   ): CommandResult {
     const previous = getActiveVersion(this.state);
     const number = this.state.revisionSequence + 1;
     const normalized = normalizeBeats(structuredClone(beats));
-    const canonical = this.state.workflow.source === "starter" && isCanonicalStory(this.state.project, normalized);
+    const canonical = this.state.workflow.source === "starter" && isCanonicalStory(this.state.project, normalized, visualContinuity);
     const versionId = canonical ? BASELINE_VERSION_ID : `${this.state.project.id}-r${number}`;
     const existing = this.state.versions.find((version) => version.id === versionId);
     const version: StoryVersion = existing ?? {
@@ -446,6 +584,7 @@ export class PayoffStore {
       createdAt: now(),
       source: actor,
       reason: message,
+      visualContinuity: structuredClone(visualContinuity),
       beats: normalized,
     };
     const at = now();
@@ -500,7 +639,7 @@ export class PayoffStore {
     const beatId = requestedId ? safeText(requestedId, "Beat ID", 100) : makeId("beat");
     if (!/^[a-z0-9][a-z0-9-]*$/.test(beatId)) throw new Error("Beat ID may contain lowercase letters, numbers, and hyphens only.");
     if (beats.some((beat) => beat.id === beatId)) throw new Error(`Beat ID already exists: ${beatId}`);
-    const created: StoryBeat = { ...valid, id: beatId, order: insertIndex + 1 };
+    const created = beatFromDraft(valid, beatId, insertIndex + 1, getActiveVersion(this.state).visualContinuity);
     const nextBeats = [...beats];
     nextBeats.splice(insertIndex, 0, created);
     return {
@@ -515,8 +654,14 @@ export class PayoffStore {
     const index = beats.findIndex((beat) => beat.id === beatId);
     if (index < 0) throw new Error(`Unknown beat ID: ${beatId}`);
     const valid = validateDraft(draft);
-    const previousTitle = beats[index].title;
-    beats[index] = { ...valid, id: beatId, order: beats[index].order };
+    const current = beats[index];
+    const previousTitle = current.title;
+    const meaningChanged = current.action !== valid.action || current.narrativeRole !== valid.narrativeRole
+      || current.intendedEmotion !== valid.intendedEmotion;
+    if (meaningChanged && sameVisualSpec(current.visual.spec, valid.visual)) {
+      throw new Error("Update the visual direction so it depicts the revised beat.");
+    }
+    beats[index] = beatFromDraft(valid, beatId, current.order, getActiveVersion(this.state).visualContinuity, current);
     return {
       ...this.commitVersion(beats, actor, "replace_beat", `Edited beat ${beats[index].order}: “${valid.title}”`, [beatId]),
       previousTitle,
@@ -544,9 +689,14 @@ export class PayoffStore {
       const valid = validateDraft(change.draft);
       const current = beats[index];
       const material = current.title !== valid.title || current.action !== valid.action || current.line !== valid.line ||
-        current.narrativeRole !== valid.narrativeRole || current.intendedEmotion !== valid.intendedEmotion || current.artKey !== valid.artKey;
+        current.narrativeRole !== valid.narrativeRole || current.intendedEmotion !== valid.intendedEmotion || !sameVisualSpec(current.visual.spec, valid.visual);
       if (!material) throw new Error(`The proposed revision does not change “${current.title}”.`);
-      beats[index] = { ...valid, id: current.id, order: current.order };
+      const meaningChanged = current.action !== valid.action || current.narrativeRole !== valid.narrativeRole
+        || current.intendedEmotion !== valid.intendedEmotion;
+      if (meaningChanged && sameVisualSpec(current.visual.spec, valid.visual)) {
+        throw new Error(`The proposed revision changes “${current.title}” without updating its visual direction.`);
+      }
+      beats[index] = beatFromDraft(valid, current.id, current.order, getActiveVersion(this.state).visualContinuity, current);
       affectedBeatIds.push(current.id);
     }
     const reason = safeText(summary, "Revision summary", 500);
@@ -582,7 +732,7 @@ export class PayoffStore {
     if (!latest) return null;
     const before = this.state.versions.find((version) => version.id === latest.beforeVersionId);
     if (!before) return null;
-    return this.commitVersion(before.beats, actor, "undo", `Undid: ${latest.message}`, latest.affectedBeatIds);
+    return this.commitVersion(before.beats, actor, "undo", `Undid: ${latest.message}`, latest.affectedBeatIds, before.visualContinuity);
   }
 
   restoreVersion(versionId: string, expectedVersion: string, actor: Actor = "human"): CommandResult {
@@ -596,6 +746,7 @@ export class PayoffStore {
       "restore_version",
       "Restored a previous story version",
       target.beats.map((beat) => beat.id),
+      target.visualContinuity,
     );
   }
 
@@ -751,14 +902,16 @@ export class PayoffStore {
   prepareHumanTest(): StudyStimulus {
     const beats = getActiveBeats(this.state);
     if (beats.length !== 6) throw new Error("Human Audience testing requires a complete six-beat storyboard.");
-    const storyHash = storyContentHash(this.state.project.id, this.state.activeVersionId, beats);
+    const visualContinuity = getActiveVersion(this.state).visualContinuity;
+    const storyHash = storyContentHash(this.state.project.id, this.state.activeVersionId, beats, visualContinuity);
     const stimulus: StudyStimulus = {
-      schema: "payoff-study/v1",
+      schema: "payoff-study/v2",
       projectId: this.state.project.id,
       title: this.state.project.title,
       format: this.state.project.format,
       storyVersionId: this.state.activeVersionId,
       storyHash,
+      visualContinuity: structuredClone(visualContinuity),
       beats: studyBeatsWithoutTarget(beats),
     };
     const sameTest = this.state.reactionSet.storyVersionId === stimulus.storyVersionId && this.state.reactionSet.storyHash === storyHash;
@@ -790,7 +943,10 @@ export class PayoffStore {
     this.publish(createSeedWorkspace());
   }
 
-  importStudyResponses(values: unknown[]): ImportResult {
+  importStudyResponses(values: unknown[], evidenceKind: "human" | "rehearsal" = "human"): ImportResult {
+    if (this.state.reactionSet.responses.length > 0 && (this.state.reactionSet.evidenceKind ?? "human") !== evidenceKind) {
+      throw new Error("Human and rehearsal responses cannot be mixed in one evidence set.");
+    }
     const existing = new Set(this.state.reactionSet.responses.map((response) => response.id));
     const accepted: AudienceReaction[] = [];
     let duplicates = 0;
@@ -806,7 +962,7 @@ export class PayoffStore {
       const activity = this.activity("import_reactions", `Imported ${accepted.length} valid human ${accepted.length === 1 ? "response" : "responses"}`);
       this.publish({
         ...this.state,
-        reactionSet: { ...this.state.reactionSet, collectedAt: importedAt, responses: [...this.state.reactionSet.responses, ...accepted] },
+        reactionSet: { ...this.state.reactionSet, collectedAt: importedAt, evidenceKind, responses: [...this.state.reactionSet.responses, ...accepted] },
         humanReports: this.state.humanReports.filter((report) =>
           report.storyVersionId !== this.state.reactionSet.storyVersionId || report.storyHash !== this.state.reactionSet.storyHash,
         ),
@@ -817,4 +973,4 @@ export class PayoffStore {
   }
 }
 
-export const payoffStore = new PayoffStore();
+export const payoffStore = new PayoffStore({ resetOnLoad: runtimeConfig.resetDemoWorkspace });

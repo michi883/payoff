@@ -1,0 +1,17 @@
+{
+  "answer": "The opening now establishes automatic praise immediately, so the audience reaches the emotional turn with less setup friction. The remaining drift comes from duration: four beats build distance, while one final beat carries the repair. That can leave a little guilt after the intended warmth.",
+  "evidence": [
+    {
+      "beat_id": "beat-1",
+      "observation": "Dad responds before the drawing is fully raised, making the pattern readable at once."
+    },
+    {
+      "beat_id": "beat-5",
+      "observation": "The phone-in-chair image sharply concentrates the cost of the earlier distraction."
+    },
+    {
+      "beat_id": "beat-6",
+      "observation": "The shared crayon signals repair, but it has only one beat to become the final feeling."
+    }
+  ]
+}

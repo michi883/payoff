@@ -2,6 +2,14 @@
   "framework": "vite",
   "buildCommand": "npm run build",
   "outputDirectory": "dist",
+  "functions": {
+    "api/scene.ts": { "maxDuration": 300 },
+    "api/storyboard.ts": { "maxDuration": 180 },
+    "api/revise.ts": { "maxDuration": 180 },
+    "api/audience.ts": { "maxDuration": 120 },
+    "api/preview.ts": { "maxDuration": 120 },
+    "api/diagnose.ts": { "maxDuration": 120 }
+  },
   "routes": [
     { "handle": "filesystem" },
     { "src": "/.*", "dest": "/index.html" }

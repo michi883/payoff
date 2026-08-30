@@ -36,9 +36,12 @@ export function AudienceResultView({
 }) {
   const [detailsOpen, setDetailsOpen] = useState(false);
   const isAI = result.source === "ai";
+  const isRehearsal = result.evidenceKind === "rehearsal";
   const sourceLabel = isAI
     ? "AI Audience · simulated"
-    : `Human Audience · ${result.audienceSize} real ${result.audienceSize === 1 ? "viewer" : "viewers"}`;
+    : isRehearsal
+      ? "Human Audience · Rehearsal data"
+      : `Human Audience · ${result.audienceSize} real ${result.audienceSize === 1 ? "viewer" : "viewers"}`;
 
   return (
     <section className="audience-report" aria-label={`${isAI ? "AI" : "Human"} Audience report`}>
@@ -48,6 +51,7 @@ export function AudienceResultView({
           <strong>{sourceLabel}</strong>
         </div>
         {isAI && <p>Useful as an early check. Not human evidence.</p>}
+        {isRehearsal && <p>Synthetic development fixture. Not real viewer evidence.</p>}
       </header>
 
       <section className="report-overview">
@@ -138,7 +142,7 @@ export function AudienceResultView({
           <section className="reaction-notes">
             <div className="section-heading">
               <span>Audience reactions</span>
-              <h3>{isAI ? "Perspective notes" : "Viewer comments"}</h3>
+              <h3>{isAI ? "Perspective notes" : isRehearsal ? "Rehearsal response notes" : "Viewer comments"}</h3>
             </div>
             <div className="reaction-grid">
               {result.reactions.map((reaction, index) => (

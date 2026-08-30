@@ -8,7 +8,7 @@ import {
   predictionSummary,
 } from "../domain/selectors";
 import { payoffStore, type PayoffStore } from "../domain/store";
-import { AI_PERSONAS, ART_KEYS, NARRATIVE_ROLES, REACTION_EMOTIONS, type AIPersona, type BeatDraft } from "../domain/types";
+import { AI_PERSONAS, NARRATIVE_ROLES, REACTION_EMOTIONS, type AIPersona, type BeatDraft } from "../domain/types";
 
 const emptySchema = { type: "object", properties: {}, additionalProperties: false };
 
@@ -22,10 +22,35 @@ const beatFields = {
     description: "Structural job of this beat.",
   },
   intended_emotion: { type: "string", maxLength: 48, description: "Emotion this beat should create." },
-  art_key: {
-    type: "string",
-    enum: [...ART_KEYS],
-    description: "Illustration motif shown on the beat card.",
+  visual: {
+    type: "object",
+    description: "Structured direction for the exact visible scene. A changed meaning requires changed visual direction.",
+    properties: {
+      setting: { type: "string", maxLength: 280 },
+      characters: {
+        type: "array",
+        maxItems: 8,
+        items: {
+          type: "object",
+          properties: {
+            id: { type: "string", maxLength: 80 },
+            appearance: { type: "string", maxLength: 260 },
+            position: { type: "string", maxLength: 220 },
+            action: { type: "string", maxLength: 260 },
+          },
+          required: ["id", "appearance", "position", "action"],
+          additionalProperties: false,
+        },
+      },
+      focal_action: { type: "string", maxLength: 320 },
+      focal_object: { type: "string", maxLength: 260 },
+      composition: { type: "string", maxLength: 360 },
+      emotional_cue: { type: "string", maxLength: 220 },
+      visible_text: { type: "string", maxLength: 80 },
+      continuity_notes: { type: "array", maxItems: 6, items: { type: "string", maxLength: 240 } },
+    },
+    required: ["setting", "characters", "focal_action", "focal_object", "composition", "emotional_cue", "visible_text", "continuity_notes"],
+    additionalProperties: false,
   },
 } as const;
 
@@ -43,13 +68,37 @@ function optionalString(input: Record<string, unknown>, name: string) {
 }
 
 function draftFromInput(input: Record<string, unknown>): BeatDraft {
+  if (!input.visual || typeof input.visual !== "object" || Array.isArray(input.visual)) throw new Error("visual is required.");
+  const visual = input.visual as Record<string, unknown>;
+  if (!Array.isArray(visual.characters)) throw new Error("visual.characters is required.");
+  if (!Array.isArray(visual.continuity_notes) || !visual.continuity_notes.every((item) => typeof item === "string")) {
+    throw new Error("visual.continuity_notes must be an array of text values.");
+  }
   return {
     title: asString(input, "title"),
     action: asString(input, "action"),
     line: typeof input.line === "string" ? input.line : "",
     narrativeRole: asString(input, "narrative_role") as BeatDraft["narrativeRole"],
     intendedEmotion: asString(input, "intended_emotion"),
-    artKey: asString(input, "art_key") as BeatDraft["artKey"],
+    visual: {
+      setting: asString(visual, "setting"),
+      characters: visual.characters.map((value) => {
+        if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("Each visual character must be an object.");
+        const character = value as Record<string, unknown>;
+        return {
+          id: asString(character, "id"),
+          appearance: asString(character, "appearance"),
+          position: asString(character, "position"),
+          action: asString(character, "action"),
+        };
+      }),
+      focalAction: asString(visual, "focal_action"),
+      focalObject: asString(visual, "focal_object"),
+      composition: asString(visual, "composition"),
+      emotionalCue: asString(visual, "emotional_cue"),
+      visibleText: typeof visual.visible_text === "string" ? visual.visible_text : "",
+      continuityNotes: visual.continuity_notes as string[],
+    },
   };
 }
 
@@ -154,6 +203,7 @@ export function buildPayoffTools(
         if (requestedId && beats.length === 0) throw new Error(`Unknown beat ID: ${requestedId}`);
         return {
           active_version: state.activeVersionId,
+          visual_continuity: state.versions.find((version) => version.id === state.activeVersionId)?.visualContinuity,
           beats: beats.map((beat) => ({
             id: beat.id,
             order: beat.order,
@@ -162,7 +212,18 @@ export function buildPayoffTools(
             line: trim(beat.line, 100),
             role: beat.narrativeRole,
             intended_emotion: beat.intendedEmotion,
-            art_key: beat.artKey,
+            visual: {
+              source: beat.visual.source,
+              content_hash: beat.visual.contentHash,
+              setting: beat.visual.spec.setting,
+              characters: beat.visual.spec.characters,
+              focal_action: beat.visual.spec.focalAction,
+              focal_object: beat.visual.spec.focalObject,
+              composition: beat.visual.spec.composition,
+              emotional_cue: beat.visual.spec.emotionalCue,
+              visible_text: beat.visual.spec.visibleText,
+              continuity_notes: beat.visual.spec.continuityNotes,
+            },
           })),
         };
       },
@@ -299,7 +360,7 @@ export function buildPayoffTools(
           expected_version: { type: "string", maxLength: 100, description: "Active version previously read; rejects stale edits." },
           ...beatFields,
         },
-        required: ["expected_version", "title", "action", "line", "narrative_role", "intended_emotion", "art_key"],
+        required: ["expected_version", "title", "action", "line", "narrative_role", "intended_emotion", "visual"],
         additionalProperties: false,
       },
       annotations: { readOnlyHint: false },
@@ -326,7 +387,7 @@ export function buildPayoffTools(
           expected_version: { type: "string", maxLength: 100, description: "Active version previously read; rejects stale edits." },
           ...beatFields,
         },
-        required: ["beat_id", "expected_version", "title", "action", "line", "narrative_role", "intended_emotion", "art_key"],
+        required: ["beat_id", "expected_version", "title", "action", "line", "narrative_role", "intended_emotion", "visual"],
         additionalProperties: false,
       },
       annotations: { readOnlyHint: false },

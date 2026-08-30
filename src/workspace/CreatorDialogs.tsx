@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
-import type { ArtKey, BeatDraft, NarrativeRole, StoryVersion } from "../domain/types";
-import { ART_KEYS, NARRATIVE_ROLES } from "../domain/types";
+import type { BeatDraft, NarrativeRole, StoryVersion } from "../domain/types";
+import { NARRATIVE_ROLES } from "../domain/types";
 
 export type EditorState = {
   mode: "create" | "replace";
@@ -61,6 +61,24 @@ export function BeatEditor({ editor, onClose, onSave }: {
     setDraft((current) => ({ ...current, [key]: value }));
   }
 
+  function updateAction(action: string) {
+    setDraft((current) => ({
+      ...current,
+      action,
+      visual: { ...current.visual, focalAction: action },
+    }));
+  }
+
+  function updateLine(line: string) {
+    setDraft((current) => ({
+      ...current,
+      line,
+      visual: current.visual.visibleText === editor.draft.line
+        ? { ...current.visual, visibleText: line }
+        : current.visual,
+    }));
+  }
+
   return (
     <div className="modal-backdrop" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && onClose()}>
       <section ref={dialogRef} className="creator-dialog beat-editor" role="dialog" aria-modal="true" aria-labelledby="beat-editor-title">
@@ -76,11 +94,15 @@ export function BeatEditor({ editor, onClose, onSave }: {
             </label>
             <label className="field-label">
               What happens
-              <textarea required maxLength={180} value={draft.action} onChange={(event) => update("action", event.target.value)} />
+              <textarea required maxLength={180} value={draft.action} onChange={(event) => updateAction(event.target.value)} />
             </label>
             <label className="field-label">
               Dialogue / on-screen text <span>Optional</span>
-              <input maxLength={100} value={draft.line} onChange={(event) => update("line", event.target.value)} />
+              <input maxLength={100} value={draft.line} onChange={(event) => updateLine(event.target.value)} />
+            </label>
+            <label className="field-label">
+              Visual direction
+              <textarea required maxLength={320} value={draft.visual.focalAction} onChange={(event) => setDraft((current) => ({ ...current, visual: { ...current.visual, focalAction: event.target.value } }))} />
             </label>
           </div>
           <details className="beat-editor__advanced">
@@ -97,16 +119,14 @@ export function BeatEditor({ editor, onClose, onSave }: {
                 <input required maxLength={48} value={draft.intendedEmotion} onChange={(event) => update("intendedEmotion", event.target.value)} />
               </label>
               <label className="field-label field-label--full">
-                Visual motif
-                <select value={draft.artKey} onChange={(event) => update("artKey", event.target.value as ArtKey)}>
-                  {ART_KEYS.map((artKey) => <option key={artKey} value={artKey}>{artKey.replaceAll("_", " ")}</option>)}
-                </select>
+                Composition
+                <textarea required maxLength={360} value={draft.visual.composition} onChange={(event) => setDraft((current) => ({ ...current, visual: { ...current.visual, composition: event.target.value } }))} />
               </label>
             </div>
           </details>
           <footer className="dialog-footer">
             <button type="button" className="secondary-button" onClick={onClose}>Cancel</button>
-            <button className="primary-button" type="submit" disabled={!draft.title.trim() || !draft.action.trim() || !draft.intendedEmotion.trim()}>{isCreate ? "Add beat" : "Save beat"}</button>
+            <button className="primary-button" type="submit" disabled={!draft.title.trim() || !draft.action.trim() || !draft.intendedEmotion.trim() || !draft.visual.focalAction.trim()}>{isCreate ? "Add beat" : "Save beat"}</button>
           </footer>
         </form>
       </section>

@@ -1,0 +1,61 @@
+{
+  "summary": "The faster first beat makes Dad's automatic response clear immediately. The drawing reveal still delivers the sting, and the shared crayon lands as an active repair.",
+  "audience_landing": "Quick recognition, a clean gut punch, then earned warmth.",
+  "match": "strong",
+  "observed_arc": ["amused recognition", "concern", "small hurt", "gut punch", "warmth"],
+  "what_landed": "Dad answering before the drawing is raised makes the distracted pattern readable in seconds.",
+  "where_it_drifted": "The repeated phone behavior can leave a trace of guilt after the warm ending.",
+  "biggest_opportunity": "Hold on the shared crayon long enough for the repair to become the final feeling.",
+  "strongest_beat": {
+    "beat_id": "beat-5",
+    "why": "The phone in Dad's chair reframes every automatic compliment in one image."
+  },
+  "weakest_beat": {
+    "beat_id": "beat-3",
+    "why": "The accumulation is clear, though it adds less new emotion than the withdrawal that follows."
+  },
+  "main_risk": "If the final beat is cut too quickly, guilt may linger longer than warmth.",
+  "changed_audience": {
+    "beat_id": "beat-5",
+    "why": "The drawing turns a familiar distraction into a specific picture of his absence."
+  },
+  "reactions": [
+    {
+      "persona": "impatient_casual",
+      "note": "The pattern is obvious from the first frame and the reveal is easy to scan.",
+      "evidence": "Dad answers while the drawing is still rising, so no setup time is wasted."
+    },
+    {
+      "persona": "emotionally_sensitive",
+      "note": "Her quiet withdrawal hurts, but the shared crayon keeps Dad redeemable.",
+      "evidence": "Beats four and six show the emotional cost and a visible repair."
+    },
+    {
+      "persona": "comedy_oriented",
+      "note": "The automatic praise starts lightly before the same behavior gains weight.",
+      "evidence": "The opening gesture reads as recognizable rather than cruel."
+    },
+    {
+      "persona": "literal_low_context",
+      "note": "The story is understandable without explanation or extra dialogue.",
+      "evidence": "The phone, drawings, turned back, and shared crayon carry the sequence."
+    },
+    {
+      "persona": "experienced_storyteller",
+      "note": "The revision compresses setup without disturbing the reveal or resolution.",
+      "evidence": "Only beat one changes; the causal spine remains intact."
+    },
+    {
+      "persona": "skeptical_viewer",
+      "note": "The repair works, though the ending needs enough screen time to overtake the guilt.",
+      "evidence": "One warm action follows several beats of disconnection."
+    }
+  ],
+  "disagreements": [
+    "Some perspectives retain more guilt, while others accept the shared drawing as sufficient repair."
+  ],
+  "confidence": {
+    "level": "medium",
+    "note": "A consistent simulated signal across six reading lenses, not human evidence."
+  }
+}

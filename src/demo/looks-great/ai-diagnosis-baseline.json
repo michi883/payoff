@@ -1,0 +1,17 @@
+{
+  "answer": "The baseline story lands because the same distracted praise grows from a familiar joke into visible withdrawal, then the phone-in-chair drawing reveals the emotional cost. The main opportunity is pace: the first two exchanges establish nearly the same information before the refrigerator escalation moves the pattern forward.",
+  "evidence": [
+    {
+      "beat_id": "beat-2",
+      "observation": "The second drawing confirms Dad's automatic response but closely resembles the opening exchange."
+    },
+    {
+      "beat_id": "beat-4",
+      "observation": "The daughter stops asking, converting repeated distraction into a visible relationship change."
+    },
+    {
+      "beat_id": "beat-5",
+      "observation": "The phone in Dad's chair concentrates the cost of the earlier behavior into one clear image."
+    }
+  ]
+}

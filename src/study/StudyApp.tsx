@@ -167,7 +167,13 @@ export function StudyApp() {
         </div>
         <section className="study-stage" aria-label={`Story beat ${beatIndex + 1}`}>
           <div className="study-stage__art">
-            <StoryCard beat={{ ...currentBeat, intendedEmotion: "" }} compact />
+            <StoryCard
+              beat={{ ...currentBeat, intendedEmotion: "" }}
+              continuity={stimulus.visualContinuity}
+              storyId={stimulus.projectId}
+              versionId={stimulus.storyVersionId}
+              compact
+            />
           </div>
           <p className="study-stage__eyebrow">Beat {String(currentBeat.order).padStart(2, "0")}</p>
           <h1>{currentBeat.title}</h1>

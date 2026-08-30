@@ -1,4 +1,4 @@
-import { AI_PERSONAS, ART_KEYS, NARRATIVE_ROLES } from "../domain/types";
+import { AI_PERSONAS, NARRATIVE_ROLES } from "../domain/types";
 import type {
   ApiErrorPayload,
   AudienceApiRequest,
@@ -9,10 +9,13 @@ import type {
   HumanAudienceApiResponse,
   ReviseApiRequest,
   ReviseApiResponse,
+  SceneApiRequest,
+  SceneApiResponse,
   StoryboardApiRequest,
   StoryboardApiResponse,
 } from "./contracts";
 import { AI_AUDIENCE_LABEL, AI_AUDIENCE_NOTICE } from "./contracts";
+import { runtimeConfig } from "../runtime";
 
 export class PayoffApiError extends Error {
   code: string;
@@ -36,16 +39,49 @@ function hasText(value: unknown): value is string {
   return typeof value === "string" && value.trim().length > 0;
 }
 
+function isVisual(value: unknown) {
+  if (!isRecord(value) || !hasText(value.setting) || !hasText(value.focalAction)
+    || !hasText(value.focalObject) || !hasText(value.composition) || !hasText(value.emotionalCue)
+    || typeof value.visibleText !== "string" || !Array.isArray(value.continuityNotes) || !value.continuityNotes.every(hasText)
+    || !Array.isArray(value.characters)) return false;
+  return value.characters.every((character) => isRecord(character) && hasText(character.id)
+    && hasText(character.appearance) && hasText(character.position) && hasText(character.action));
+}
+
+function isContinuity(value: unknown) {
+  if (!isRecord(value) || !hasText(value.style)) return false;
+  return ["characters", "settings", "importantProps"].every((field) => Array.isArray(value[field])
+    && value[field].every((item) => isRecord(item) && hasText(item.id) && hasText(item.appearance)));
+}
+
 function isBeatDraft(value: unknown) {
   if (!isRecord(value)) return false;
   return hasText(value.title) && hasText(value.action) && typeof value.line === "string"
     && NARRATIVE_ROLES.includes(value.narrativeRole as (typeof NARRATIVE_ROLES)[number])
-    && hasText(value.intendedEmotion) && ART_KEYS.includes(value.artKey as (typeof ART_KEYS)[number]);
+    && hasText(value.intendedEmotion) && isVisual(value.visual);
 }
 
 function isStoryboardResponse(value: unknown): value is StoryboardApiResponse {
-  return isRecord(value) && hasText(value.title) && hasText(value.target_payoff)
+  return isRecord(value) && hasText(value.title) && hasText(value.target_payoff) && isContinuity(value.visual_continuity)
     && Array.isArray(value.beats) && value.beats.length === 6 && value.beats.every(isBeatDraft);
+}
+
+function isSceneReference(value: unknown) {
+  return isRecord(value)
+    && /^continuity:[a-f0-9]{8}$/.test(String(value.content_hash))
+    && typeof value.environment_image_data_url === "string"
+    && /^data:image\/(?:webp|png|jpeg);base64,[a-z0-9+/=]+$/i.test(value.environment_image_data_url)
+    && Array.isArray(value.characters)
+    && value.characters.every((character) => isRecord(character) && hasText(character.id)
+      && typeof character.image_data_url === "string"
+      && /^data:image\/(?:webp|png|jpeg);base64,[a-z0-9+/=]+$/i.test(character.image_data_url));
+}
+
+function isSceneResponse(value: unknown): value is SceneApiResponse {
+  return isRecord(value) && /^scene:[a-f0-9]{8}$/.test(String(value.content_hash))
+    && typeof value.image_data_url === "string"
+    && /^data:image\/(?:webp|png|jpeg);base64,[a-z0-9+/=]+$/i.test(value.image_data_url)
+    && isSceneReference(value.continuity_reference);
 }
 
 function isResultBeat(value: unknown) {
@@ -100,6 +136,7 @@ async function postJson<T>(
   validate: (value: unknown) => value is T,
   invalidMessage: string,
   signal?: AbortSignal,
+  timeoutMs = 45_000,
 ): Promise<T> {
   const controller = new AbortController();
   let externalAbort = false;
@@ -107,12 +144,16 @@ async function postJson<T>(
   const onAbort = () => { externalAbort = true; controller.abort(); };
   if (signal?.aborted) throw new DOMException("The request was cancelled.", "AbortError");
   signal?.addEventListener("abort", onAbort, { once: true });
-  const timeout = window.setTimeout(() => { timedOut = true; controller.abort(); }, 45_000);
+  const timeout = window.setTimeout(() => { timedOut = true; controller.abort(); }, timeoutMs);
 
   try {
     const response = await fetch(path, {
       method: "POST",
-      headers: { "Content-Type": "application/json", Accept: "application/json" },
+      headers: {
+        "Content-Type": "application/json",
+        Accept: "application/json",
+        ...(runtimeConfig.demoMode ? { "X-Payoff-Demo": "1" } : {}),
+      },
       body: JSON.stringify(body),
       signal: controller.signal,
     });
@@ -142,21 +183,25 @@ async function postJson<T>(
 }
 
 export function generateStoryboard(input: StoryboardApiRequest, signal?: AbortSignal) {
-  return postJson("/api/storyboard", input, isStoryboardResponse, "Payoff couldn't finish that storyboard. Your brief is safe.", signal);
+  return postJson("/api/storyboard", input, isStoryboardResponse, "Payoff couldn't finish that storyboard. Your brief is safe.", signal, 180_000);
+}
+
+export function generateSceneVisual(input: SceneApiRequest, signal?: AbortSignal) {
+  return postJson("/api/scene", input, isSceneResponse, "Scene visual couldn't be created.", signal, 300_000);
 }
 
 export function runAIAudience(input: AudienceApiRequest, signal?: AbortSignal) {
-  return postJson("/api/audience", input, isAudienceResponse, "Payoff couldn't finish that audience check. Your story was not changed.", signal);
+  return postJson("/api/audience", input, isAudienceResponse, "Payoff couldn't finish that audience check. Your story was not changed.", signal, 120_000);
 }
 
 export function interpretHumanAudience(input: HumanAudienceApiRequest, signal?: AbortSignal) {
-  return postJson("/api/audience", input, isHumanAudienceResponse, "Payoff couldn't make sense of those viewer responses. Your responses are safe.", signal);
+  return postJson("/api/audience", input, isHumanAudienceResponse, "Payoff couldn't make sense of those viewer responses. Your responses are safe.", signal, 120_000);
 }
 
 export function diagnoseAudience(input: DiagnoseApiRequest, signal?: AbortSignal) {
-  return postJson("/api/diagnose", input, isDiagnoseResponse, "Payoff couldn't explain that result just now. Your story was not changed.", signal);
+  return postJson("/api/diagnose", input, isDiagnoseResponse, "Payoff couldn't explain that result just now. Your story was not changed.", signal, 120_000);
 }
 
 export function requestRevision(input: ReviseApiRequest, signal?: AbortSignal) {
-  return postJson("/api/revise", input, isReviseResponse, "Payoff couldn't finish that revision. Your story was not changed.", signal);
+  return postJson("/api/revise", input, isReviseResponse, "Payoff couldn't prepare that revision. Try again.", signal, 180_000);
 }

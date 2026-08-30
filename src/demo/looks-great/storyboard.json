@@ -1,0 +1,8 @@
+{
+  "fixture": "looks-great-storyboard",
+  "source": "reviewed-production-seed",
+  "storyVersion": "looks-great-v1",
+  "storyHash": "fnv1a:32526cba",
+  "beatIds": ["beat-1", "beat-2", "beat-3", "beat-4", "beat-5", "beat-6"],
+  "artKeys": ["drawing_offer", "drawing_again", "fridge_gallery", "quiet_fridge", "phone_dad_drawing", "crayon_together"]
+}

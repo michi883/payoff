@@ -1,7 +1,37 @@
 import { z } from "zod";
-import { AI_PERSONAS, ART_KEYS, NARRATIVE_ROLES, REACTION_EMOTIONS } from "../src/domain/types.ts";
+import { AI_PERSONAS, CANONICAL_ART_KEYS, NARRATIVE_ROLES, REACTION_EMOTIONS } from "../src/domain/types.ts";
 
 const shortText = (max: number) => z.string().trim().min(1).max(max);
+
+export const BeatVisualSchema = z.object({
+  setting: shortText(280),
+  characters: z.array(z.object({
+    id: shortText(80),
+    appearance: shortText(260),
+    position: shortText(220),
+    action: shortText(260),
+  }).strict()).max(8),
+  focalAction: shortText(320),
+  focalObject: shortText(260),
+  composition: shortText(360),
+  emotionalCue: shortText(220),
+  visibleText: z.string().trim().max(80),
+  continuityNotes: z.array(shortText(240)).max(6),
+}).strict();
+
+export const VisualContinuitySchema = z.object({
+  characters: z.array(z.object({ id: shortText(80), appearance: shortText(260) }).strict()).max(8),
+  settings: z.array(z.object({ id: shortText(80), appearance: shortText(280) }).strict()).max(6),
+  importantProps: z.array(z.object({ id: shortText(80), appearance: shortText(240) }).strict()).max(8),
+  timeOfDay: shortText(180).optional(),
+  lighting: shortText(240).optional(),
+  style: shortText(320),
+}).strict().superRefine((continuity, context) => {
+  for (const [field, entries] of [["characters", continuity.characters], ["settings", continuity.settings], ["importantProps", continuity.importantProps]] as const) {
+    const ids = entries.map((entry) => entry.id.toLowerCase());
+    if (new Set(ids).size !== ids.length) context.addIssue({ code: "custom", message: `${field} IDs must be unique.`, path: [field] });
+  }
+});
 
 export const BeatDraftSchema = z.object({
   title: shortText(48),
@@ -9,12 +39,27 @@ export const BeatDraftSchema = z.object({
   line: z.string().trim().max(100),
   narrativeRole: z.enum(NARRATIVE_ROLES),
   intendedEmotion: shortText(48),
-  artKey: z.enum(ART_KEYS),
+  visual: BeatVisualSchema,
 }).strict();
 
-export const StoryBeatSchema = BeatDraftSchema.extend({
+const BeatArtworkSchema = z.discriminatedUnion("source", [
+  z.object({
+    source: z.literal("canonical"),
+    key: z.enum(CANONICAL_ART_KEYS),
+    spec: BeatVisualSchema,
+    contentHash: shortText(100),
+  }).strict(),
+  z.object({
+    source: z.literal("generated"),
+    spec: BeatVisualSchema,
+    contentHash: shortText(100),
+  }).strict(),
+]);
+
+export const StoryBeatSchema = BeatDraftSchema.omit({ visual: true }).extend({
   id: z.string().trim().min(1).max(100),
   order: z.number().int().min(1).max(6),
+  visual: BeatArtworkSchema,
 }).strict();
 
 export const EmotionalTargetSchema = z.object({
@@ -49,7 +94,84 @@ export const StoryboardRequestSchema = z.object({
 export const StoryboardModelOutputSchema = z.object({
   title: shortText(60),
   target_payoff: shortText(160),
+  visual_continuity: VisualContinuitySchema,
   beats: z.array(BeatDraftSchema).length(6),
+}).strict();
+
+export const StoryboardQualityReviewSchema = z.object({
+  passed: z.boolean(),
+  issues: z.array(z.object({
+    beat_number: z.number().int().min(1).max(6).nullable(),
+    code: z.enum(["title", "description", "progression", "redundancy", "payoff", "emotion", "visual_text", "continuity"]),
+    problem: shortText(300),
+    repair_instruction: shortText(300),
+  }).strict()).max(10),
+}).strict();
+
+export const StoryboardRepairVerificationSchema = z.object({
+  passed: z.boolean(),
+  unresolved: z.array(z.object({
+    issue_number: z.number().int().min(1).max(20),
+    explanation: shortText(300),
+  }).strict()).max(10),
+}).strict();
+
+const referenceImageDataUrl = z.string().trim().max(2_000_000)
+  .regex(/^data:image\/(?:webp|png|jpeg);base64,[a-z0-9+/=]+$/i);
+
+export const SceneContinuityReferenceSchema = z.object({
+  content_hash: z.string().trim().regex(/^continuity:[a-f0-9]{8}$/),
+  environment_image_data_url: referenceImageDataUrl,
+  characters: z.array(z.object({
+    id: shortText(80),
+    image_data_url: referenceImageDataUrl,
+  }).strict()).max(8),
+  previous_scene: z.object({
+    beat_number: z.number().int().min(1).max(6),
+    beat_title: shortText(100),
+    image_data_url: referenceImageDataUrl,
+  }).strict().optional(),
+}).strict().superRefine((reference, context) => {
+  const ids = reference.characters.map((character) => character.id.toLowerCase());
+  if (new Set(ids).size !== ids.length) {
+    context.addIssue({ code: "custom", message: "Continuity reference character IDs must be unique.", path: ["characters"] });
+  }
+});
+
+export const SceneGenerationRequestSchema = z.object({
+  content_hash: z.string().trim().regex(/^scene:[a-f0-9]{8}$/),
+  continuity: VisualContinuitySchema,
+  beat: BeatDraftSchema,
+  context: z.object({
+    story_id: shortText(100),
+    version_id: shortText(100),
+    beat_id: shortText(100),
+    beat_number: z.number().int().min(1).max(6),
+  }).strict().optional(),
+  continuity_reference: SceneContinuityReferenceSchema.optional(),
+  force: z.boolean().optional(),
+}).strict();
+
+export const SceneQualityReviewSchema = z.object({
+  passed: z.boolean(),
+  story_core_clear: z.boolean(),
+  emotional_purpose_clear: z.boolean(),
+  material_failure: z.boolean(),
+  required_characters_present: z.boolean(),
+  unexpected_character_or_reveal: z.boolean(),
+  unexpected_object_or_clue: z.boolean(),
+  focal_object_present: z.boolean(),
+  focal_action_clear: z.boolean(),
+  relationship_clear: z.boolean(),
+  contradiction: z.boolean(),
+  identity_consistent: z.boolean(),
+  wardrobe_consistent: z.boolean(),
+  setting_consistent: z.boolean(),
+  room_layout_consistent: z.boolean(),
+  lighting_consistent: z.boolean(),
+  prop_continuity_consistent: z.boolean(),
+  continuity_consistent: z.boolean(),
+  clarification: z.string().trim().max(500),
 }).strict();
 
 export const AudienceRequestSchema = z.object({
@@ -93,7 +215,7 @@ export const AudienceModelOutputSchema = z.object({
   }).strict(),
 }).strict();
 
-const HumanResponseSchema = z.object({
+export const HumanResponseSchema = z.object({
   id: shortText(100),
   storyVersionId: shortText(100),
   storyHash: shortText(100),
@@ -144,6 +266,7 @@ export const HumanAudienceModelOutputSchema = z.object({
 export const ReviseRequestSchema = z.object({
   creator_request: shortText(500),
   story: z.object({
+    id: shortText(100),
     title: shortText(60),
     beats: orderedBeatsSchema(true),
   }).strict(),
@@ -219,13 +342,77 @@ const StructuredBeatDraftSchema = z.object({
   line: z.string().trim(),
   narrativeRole: z.enum(NARRATIVE_ROLES),
   intendedEmotion: structuredText,
-  artKey: z.enum(ART_KEYS),
+  visual: z.object({
+    setting: structuredText,
+    characters: z.array(z.object({
+      id: structuredText,
+      appearance: structuredText,
+      position: structuredText,
+      action: structuredText,
+    }).strict()).max(8),
+    focalAction: structuredText,
+    focalObject: structuredText,
+    composition: structuredText,
+    emotionalCue: structuredText,
+    visibleText: z.string().trim(),
+    continuityNotes: z.array(structuredText).max(6),
+  }).strict(),
+}).strict();
+
+const StructuredVisualContinuitySchema = z.object({
+  characters: z.array(z.object({ id: structuredText, appearance: structuredText }).strict()).max(8),
+  settings: z.array(z.object({ id: structuredText, appearance: structuredText }).strict()).max(6),
+  importantProps: z.array(z.object({ id: structuredText, appearance: structuredText }).strict()).max(8),
+  timeOfDay: structuredText,
+  lighting: structuredText,
+  style: structuredText,
 }).strict();
 
 export const StoryboardStructuredOutputSchema = z.object({
   title: structuredText,
   target_payoff: structuredText,
+  visual_continuity: StructuredVisualContinuitySchema,
   beats: z.array(StructuredBeatDraftSchema).length(6),
+}).strict();
+
+export const StoryboardQualityStructuredOutputSchema = z.object({
+  passed: z.boolean(),
+  issues: z.array(z.object({
+    beat_number: z.number().int().min(1).max(6).nullable(),
+    code: z.enum(["title", "description", "progression", "redundancy", "payoff", "emotion", "visual_text", "continuity"]),
+    problem: structuredText,
+    repair_instruction: structuredText,
+  }).strict()).max(10),
+}).strict();
+
+export const StoryboardRepairVerificationStructuredOutputSchema = z.object({
+  passed: z.boolean(),
+  unresolved: z.array(z.object({
+    issue_number: z.number().int().min(1).max(20),
+    explanation: structuredText,
+  }).strict()).max(10),
+}).strict();
+
+export const SceneQualityStructuredOutputSchema = z.object({
+  passed: z.boolean(),
+  story_core_clear: z.boolean(),
+  emotional_purpose_clear: z.boolean(),
+  material_failure: z.boolean(),
+  required_characters_present: z.boolean(),
+  unexpected_character_or_reveal: z.boolean(),
+  unexpected_object_or_clue: z.boolean(),
+  focal_object_present: z.boolean(),
+  focal_action_clear: z.boolean(),
+  relationship_clear: z.boolean(),
+  contradiction: z.boolean(),
+  identity_consistent: z.boolean(),
+  wardrobe_consistent: z.boolean(),
+  setting_consistent: z.boolean(),
+  room_layout_consistent: z.boolean(),
+  lighting_consistent: z.boolean(),
+  prop_continuity_consistent: z.boolean(),
+  continuity_consistent: z.boolean(),
+  clarification: z.string().trim(),
 }).strict();
 
 const structuredResultBeat = z.object({
@@ -268,13 +455,31 @@ export const HumanAudienceStructuredOutputSchema = z.object({
 
 export const RevisionStructuredOutputSchema = z.object({
   kind: z.enum(["revision", "clarification"]),
-  summary: structuredText,
+  summary: structuredText.nullable(),
   why: structuredText.nullable(),
   clarification_question: structuredText.nullable(),
   changes: z.array(z.object({
     beat_id: structuredText,
-    what_changes: structuredText,
-    replacement: StructuredBeatDraftSchema,
+    what_changes: structuredText.nullable(),
+    title: structuredText.nullable(),
+    action: structuredText.nullable(),
+    line: z.string().nullable(),
+    narrative_role: z.enum(NARRATIVE_ROLES).nullable(),
+    intended_emotion: structuredText.nullable(),
+    visual_direction: z.object({
+      setting: structuredText.nullable(),
+      character_updates: z.array(z.object({
+        id: structuredText,
+        position: structuredText.nullable(),
+        action: structuredText.nullable(),
+      }).strict()).max(8),
+      focal_action: structuredText.nullable(),
+      focal_object: structuredText.nullable(),
+      composition: structuredText.nullable(),
+      emotional_cue: structuredText.nullable(),
+      visible_text: z.string().nullable(),
+      continuity_notes: z.array(structuredText).max(4),
+    }).strict().nullable(),
   }).strict()).max(6),
 }).strict();
 
@@ -288,11 +493,17 @@ export const DiagnosisStructuredOutputSchema = z.object({
 
 export type StoryboardRequest = z.infer<typeof StoryboardRequestSchema>;
 export type StoryboardModelOutput = z.infer<typeof StoryboardModelOutputSchema>;
+export type StoryboardQualityReview = z.infer<typeof StoryboardQualityReviewSchema>;
+export type StoryboardRepairVerification = z.infer<typeof StoryboardRepairVerificationSchema>;
+export type SceneContinuityReference = z.infer<typeof SceneContinuityReferenceSchema>;
+export type SceneGenerationRequest = z.infer<typeof SceneGenerationRequestSchema>;
+export type SceneQualityReview = z.infer<typeof SceneQualityReviewSchema>;
 export type AudienceRequest = z.infer<typeof AudienceRequestSchema>;
 export type AudienceModelOutput = z.infer<typeof AudienceModelOutputSchema>;
 export type HumanAudienceRequest = z.infer<typeof HumanAudienceRequestSchema>;
 export type HumanAudienceModelOutput = z.infer<typeof HumanAudienceModelOutputSchema>;
 export type ReviseRequest = z.infer<typeof ReviseRequestSchema>;
 export type RevisionModelOutput = z.infer<typeof RevisionModelOutputSchema>;
+export type RevisionStructuredOutput = z.infer<typeof RevisionStructuredOutputSchema>;
 export type DiagnoseRequest = z.infer<typeof DiagnoseRequestSchema>;
 export type DiagnosisModelOutput = z.infer<typeof DiagnosisModelOutputSchema>;

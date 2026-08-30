@@ -1,8 +1,11 @@
-import { SceneArt } from "../art/SceneArt";
-import type { StoryBeat } from "../domain/types";
+import type { StoryBeat, VisualContinuity } from "../domain/types";
+import { SceneVisual } from "../visuals/SceneVisual";
 
 type StoryCardProps = {
   beat: StoryBeat;
+  continuity: VisualContinuity;
+  storyId: string;
+  versionId: string;
   changed?: boolean;
   compact?: boolean;
   onAskAI?: (beat: StoryBeat) => void;
@@ -15,6 +18,9 @@ type StoryCardProps = {
 
 export function StoryCard({
   beat,
+  continuity,
+  storyId,
+  versionId,
   changed = false,
   compact = false,
   onAskAI,
@@ -29,10 +35,12 @@ export function StoryCard({
     action();
   }
 
+  const line = /^[A-Z0-9][A-Z0-9 .!?'-]{0,20}$/.test(beat.line) ? beat.line : `“${beat.line}”`;
+
   return (
     <article className={`story-card${changed ? " story-card--changed" : ""}${compact ? " story-card--compact" : ""}`}>
       <div className="story-card__art">
-        <SceneArt artKey={beat.artKey} label={`Illustration for beat ${beat.order}: ${beat.title}`} />
+        <SceneVisual beat={beat} continuity={continuity} storyId={storyId} versionId={versionId} updating={changed} />
         <span className="beat-number">{String(beat.order).padStart(2, "0")}</span>
         {onEdit && (
           <details className="beat-menu">
@@ -50,7 +58,7 @@ export function StoryCard({
       <div className="story-card__body">
         <h3>{beat.title}</h3>
         <p>{beat.action}</p>
-        {beat.line && <blockquote>“{beat.line}”</blockquote>}
+        {beat.line && <blockquote>{line}</blockquote>}
       </div>
     </article>
   );

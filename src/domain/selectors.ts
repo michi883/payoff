@@ -1,5 +1,5 @@
 import { RESEARCH_MIN_SAMPLE } from "./seed";
-import type { AIPreview, AudienceReaction, ReactionEmotion, StoryBeat, StoryVersion, Workspace } from "./types";
+import type { AIPreview, AudienceReaction, ReactionEmotion, StoryBeat, StoryVersion, VisualContinuity, Workspace } from "./types";
 
 export function getActiveVersion(workspace: Workspace): StoryVersion {
   const version = workspace.versions.find((candidate) => candidate.id === workspace.activeVersionId);
@@ -15,6 +15,10 @@ export function getTestedVersion(workspace: Workspace): StoryVersion {
 
 export function getActiveBeats(workspace: Workspace): StoryBeat[] {
   return [...getActiveVersion(workspace).beats].sort((a, b) => a.order - b.order);
+}
+
+export function getActiveVisualContinuity(workspace: Workspace): VisualContinuity {
+  return structuredClone(getActiveVersion(workspace).visualContinuity);
 }
 
 export function isActiveVersionTested(workspace: Workspace): boolean {
@@ -35,6 +39,10 @@ export function getEvidenceLabel(workspace: Workspace): string {
   if (!isActiveVersionTested(workspace)) {
     const hasPriorHumanEvidence = count > 0 || workspace.reactionHistory.some((set) => set.responses.length > 0);
     return hasPriorHumanEvidence ? "Untested revision · prior Human Audience evidence preserved" : "Untested revision";
+  }
+  if (workspace.reactionSet.storyVersionId === workspace.activeVersionId
+    && workspace.reactionSet.evidenceKind === "rehearsal" && count > 0) {
+    return "Rehearsal data · not human evidence";
   }
   if (workspace.aiPreviews.some((preview) => preview.storyVersionId === workspace.activeVersionId) && count === 0) {
     return "Tested with AI Audience · no human responses";

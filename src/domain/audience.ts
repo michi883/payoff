@@ -4,6 +4,7 @@ import type { AIPreview, AudienceReaction, ReactionEmotion, Workspace } from "./
 
 export type AudienceResultViewModel = {
   source: "ai" | "human";
+  evidenceKind: "simulation" | "human" | "rehearsal";
   audienceSize: number;
   intendedPayoff: string;
   audienceLanding: string;
@@ -50,6 +51,7 @@ export function getAIAudienceResult(workspace: Workspace): AudienceResultViewMod
   const changedWhy = preview.changedAudienceWhy ?? preview.investigateNext ?? "The decisive transition is still uncertain.";
   return {
     source: "ai",
+    evidenceKind: "simulation",
     audienceSize: preview.perspectives.length,
     intendedPayoff: getTargetPayoff(workspace),
     audienceLanding: preview.likelyEmotionalLanding ?? preview.summary,
@@ -118,8 +120,10 @@ export function getHumanAudienceResult(workspace: Workspace): AudienceResultView
     && [...candidate.responseIds].sort().every((id, index) => id === responseIds[index]),
   );
   if (!report) return null;
+  const rehearsal = reactionSet.evidenceKind === "rehearsal";
   return {
     source: "human",
+    evidenceKind: rehearsal ? "rehearsal" : "human",
     audienceSize: reactionSet.responses.length,
     intendedPayoff: getTargetPayoff(workspace),
     audienceLanding: report.audienceLanding,
@@ -134,9 +138,15 @@ export function getHumanAudienceResult(workspace: Workspace): AudienceResultView
     changedAudience: { beatId: report.changedAudienceBeatId, why: report.changedAudienceWhy },
     reactions: humanReactionNotes(reactionSet.responses),
     disagreements: [],
-    evidenceStrength: humanEvidenceStrength(reactionSet.responses.length),
-    methodology: "Real viewers watched the full story without seeing your target, then answered the same response questions. Payoff organized those responses into this report.",
-    provenance: `${reactionSet.responses.length} anonymous target-blind ${reactionSet.responses.length === 1 ? "response" : "responses"} from this exact story. AI Audience data is not included.`,
+    evidenceStrength: rehearsal
+      ? `Rehearsal data · ${reactionSet.responses.length} synthetic fixture ${reactionSet.responses.length === 1 ? "response" : "responses"}. Not human evidence.`
+      : humanEvidenceStrength(reactionSet.responses.length),
+    methodology: rehearsal
+      ? "Synthetic responses exercise the same target-blind import, normalization, version binding, and report rendering used for Human Audience evidence."
+      : "Real viewers watched the full story without seeing your target, then answered the same response questions. Payoff organized those responses into this report.",
+    provenance: rehearsal
+      ? "Development-only rehearsal fixture for this exact story. No real viewer claim is made."
+      : `${reactionSet.responses.length} anonymous target-blind ${reactionSet.responses.length === 1 ? "response" : "responses"} from this exact story. AI Audience data is not included.`,
     testedAt: reactionSet.collectedAt ?? report.createdAt,
     storyVersionId: report.storyVersionId,
   };

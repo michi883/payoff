@@ -1,0 +1,103 @@
+{
+  "fixture": "human-responses",
+  "provenance": {
+    "kind": "rehearsal",
+    "label": "Synthetic rehearsal fixture. Not real viewer evidence."
+  },
+  "storyVersion": "looks-great-r2",
+  "storyHash": "fnv1a:5e561bf4",
+  "responses": [
+    {
+      "schema": "payoff-study-response/v1",
+      "study": {
+        "projectId": "looks-great",
+        "storyVersionId": "looks-great-r2",
+        "storyHash": "fnv1a:5e561bf4",
+        "targetWasHidden": true,
+        "firstViewingWasUninterrupted": true
+      },
+      "response": {
+        "id": "rehearsal-only-opening-faster-01",
+        "storyVersionId": "looks-great-r2",
+        "storyHash": "fnv1a:5e561bf4",
+        "submittedAt": "2026-08-30T12:01:00.000Z",
+        "endingEmotion": "warm",
+        "interpretation": "He finally sees what his automatic praise has been costing her and chooses to join her.",
+        "wasSurprised": true,
+        "predictionPoint": "beat_5",
+        "changedBeatId": "beat-5",
+        "changedWhy": "The phone in his chair made his absence visible immediately.",
+        "quoteConsent": false
+      }
+    },
+    {
+      "schema": "payoff-study-response/v1",
+      "study": {
+        "projectId": "looks-great",
+        "storyVersionId": "looks-great-r2",
+        "storyHash": "fnv1a:5e561bf4",
+        "targetWasHidden": true,
+        "firstViewingWasUninterrupted": true
+      },
+      "response": {
+        "id": "rehearsal-only-opening-faster-02",
+        "storyVersionId": "looks-great-r2",
+        "storyHash": "fnv1a:5e561bf4",
+        "submittedAt": "2026-08-30T12:02:00.000Z",
+        "endingEmotion": "guilty",
+        "interpretation": "The ending is caring, but her decision to stop asking still gives the story a guilty edge.",
+        "wasSurprised": true,
+        "predictionPoint": "beat_5",
+        "changedBeatId": "beat-4",
+        "changedWhy": "Her quiet withdrawal made the repeated distraction feel consequential.",
+        "quoteConsent": false
+      }
+    },
+    {
+      "schema": "payoff-study-response/v1",
+      "study": {
+        "projectId": "looks-great",
+        "storyVersionId": "looks-great-r2",
+        "storyHash": "fnv1a:5e561bf4",
+        "targetWasHidden": true,
+        "firstViewingWasUninterrupted": true
+      },
+      "response": {
+        "id": "rehearsal-only-opening-faster-03",
+        "storyVersionId": "looks-great-r2",
+        "storyHash": "fnv1a:5e561bf4",
+        "submittedAt": "2026-08-30T12:03:00.000Z",
+        "endingEmotion": "warm",
+        "interpretation": "Putting the phone down and accepting the crayon turns recognition into a real choice.",
+        "wasSurprised": false,
+        "predictionPoint": "beat_4",
+        "changedBeatId": "beat-6",
+        "changedWhy": "The shared action makes the repair feel active instead of verbal.",
+        "quoteConsent": false
+      }
+    },
+    {
+      "schema": "payoff-study-response/v1",
+      "study": {
+        "projectId": "looks-great",
+        "storyVersionId": "looks-great-r2",
+        "storyHash": "fnv1a:5e561bf4",
+        "targetWasHidden": true,
+        "firstViewingWasUninterrupted": true
+      },
+      "response": {
+        "id": "rehearsal-only-opening-faster-04",
+        "storyVersionId": "looks-great-r2",
+        "storyHash": "fnv1a:5e561bf4",
+        "submittedAt": "2026-08-30T12:04:00.000Z",
+        "endingEmotion": "moved",
+        "interpretation": "The faster opening makes his habit clear, and the final shared crayon feels like a hopeful correction.",
+        "wasSurprised": true,
+        "predictionPoint": "not_predicted",
+        "changedBeatId": "beat-5",
+        "changedWhy": "The drawing changed the meaning of every earlier compliment.",
+        "quoteConsent": false
+      }
+    }
+  ]
+}

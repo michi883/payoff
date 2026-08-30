@@ -1,0 +1,61 @@
+{
+  "summary": "The repeated distracted praise is easy to follow, the drawing of Dad delivers the sting, and the shared crayon restores warmth.",
+  "audience_landing": "Familiar amusement, a clear guilty sting, then gentle warmth.",
+  "match": "strong",
+  "observed_arc": ["familiar amusement", "concern", "quiet hurt", "guilty recognition", "warmth"],
+  "what_landed": "The repeated drawings and Dad's unchanged phone focus establish a recognizable pattern without explanation.",
+  "where_it_drifted": "The first two beats take a little time to establish the same automatic response.",
+  "biggest_opportunity": "Compress Dad's first response so the pattern starts sooner while preserving the reveal and repair.",
+  "strongest_beat": {
+    "beat_id": "beat-5",
+    "why": "The phone drawn in Dad's chair turns the repeated joke into a specific emotional cost."
+  },
+  "weakest_beat": {
+    "beat_id": "beat-2",
+    "why": "It confirms the pattern clearly, but repeats much of the opening before the escalation arrives."
+  },
+  "main_risk": "If the setup lingers, impatient viewers may understand the pattern before the story advances it.",
+  "changed_audience": {
+    "beat_id": "beat-5",
+    "why": "The drawing reframes Dad's familiar distraction as the daughter's experience of his absence."
+  },
+  "reactions": [
+    {
+      "persona": "impatient_casual",
+      "note": "The story is clear, though the second compliment could arrive faster.",
+      "evidence": "The first two beats show similar exchanges before the refrigerator escalation."
+    },
+    {
+      "persona": "emotionally_sensitive",
+      "note": "Her decision to stop asking creates a quiet hurt before the reveal.",
+      "evidence": "The withdrawal in beat four makes the phone-in-chair drawing feel earned."
+    },
+    {
+      "persona": "comedy_oriented",
+      "note": "Dad's repeated praise begins as a recognizable family habit rather than cruelty.",
+      "evidence": "The repeated short compliments create a light pattern before its meaning changes."
+    },
+    {
+      "persona": "literal_low_context",
+      "note": "The phone, refrigerator drawings, and final shared crayon make every turn understandable.",
+      "evidence": "The important actions and objects are large and visually explicit."
+    },
+    {
+      "persona": "experienced_storyteller",
+      "note": "The reveal pays off the repeated behavior and the final beat answers it with action.",
+      "evidence": "Dad replaces automatic praise with direct participation in the drawing."
+    },
+    {
+      "persona": "skeptical_viewer",
+      "note": "The repair is credible if the final shared moment receives enough screen time.",
+      "evidence": "One participatory action must outweigh several beats of visible disconnection."
+    }
+  ],
+  "disagreements": [
+    "Some perspectives find the repeated setup efficient, while others want the second beat compressed."
+  ],
+  "confidence": {
+    "level": "medium",
+    "note": "A consistent simulated reading across six perspectives, not human evidence."
+  }
+}

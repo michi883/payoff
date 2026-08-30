@@ -1,0 +1,22 @@
+{
+  "summary": "The rehearsal responses consistently understood Dad's realization and active repair. They are synthetic fixtures for recording practice, not human evidence.",
+  "audience_landing": "A guilty sting followed by reassuring warmth.",
+  "match": "partial",
+  "observed_arc": ["recognition", "unease", "hurt", "guilt", "warmth"],
+  "what_landed": "The phone-in-chair drawing made Dad's emotional absence unmistakable.",
+  "where_it_drifted": "The rehearsal pattern held onto guilt slightly longer than the intended warmth.",
+  "biggest_opportunity": "Let the final shared drawing action breathe so reconnection is the last impression.",
+  "strongest_beat": {
+    "beat_id": "beat-5",
+    "why": "Every rehearsal response treated the drawing as the decisive realization."
+  },
+  "weakest_beat": {
+    "beat_id": "beat-3",
+    "why": "The accumulation reinforces the pattern but is less emotionally distinct than the surrounding beats."
+  },
+  "main_risk": "A fast cut after the final beat could leave the story feeling more guilty than warm.",
+  "changed_audience": {
+    "beat_id": "beat-5",
+    "why": "The drawing gave the earlier automatic praise a concrete emotional cost."
+  }
+}

@@ -1,14 +1,10 @@
-export const ART_KEYS = [
+export const CANONICAL_ART_KEYS = [
   "drawing_offer",
   "drawing_again",
   "fridge_gallery",
   "quiet_fridge",
   "phone_dad_drawing",
   "crayon_together",
-  "phone_closeup",
-  "conversation",
-  "window_light",
-  "clock",
 ] as const;
 
 export const NARRATIVE_ROLES = ["setup", "escalation", "turn", "payoff"] as const;
@@ -36,7 +32,7 @@ export const AI_PERSONAS = [
   "skeptical_viewer",
 ] as const;
 
-export type ArtKey = (typeof ART_KEYS)[number];
+export type CanonicalArtKey = (typeof CANONICAL_ART_KEYS)[number];
 export type NarrativeRole = (typeof NARRATIVE_ROLES)[number];
 export type ReactionEmotion = (typeof REACTION_EMOTIONS)[number];
 export type AIPersona = (typeof AI_PERSONAS)[number];
@@ -59,6 +55,55 @@ export type ProjectBrief = {
   };
 };
 
+export type VisualContinuity = {
+  characters: Array<{
+    id: string;
+    appearance: string;
+  }>;
+  settings: Array<{
+    id: string;
+    appearance: string;
+  }>;
+  importantProps: Array<{
+    id: string;
+    appearance: string;
+  }>;
+  /** New storyboards always provide these; optionality preserves saved v4 workspaces created before the fields existed. */
+  timeOfDay?: string;
+  lighting?: string;
+  style: string;
+};
+
+export type BeatVisual = {
+  setting: string;
+  characters: Array<{
+    id: string;
+    appearance: string;
+    position: string;
+    action: string;
+  }>;
+  focalAction: string;
+  focalObject: string;
+  composition: string;
+  emotionalCue: string;
+  /** Exact typography is rendered by Payoff, not requested from an image model. */
+  visibleText: string;
+  continuityNotes: string[];
+};
+
+export type BeatArtwork =
+  | {
+      source: "canonical";
+      key: CanonicalArtKey;
+      spec: BeatVisual;
+      contentHash: string;
+    }
+  | {
+      source: "generated";
+      spec: BeatVisual;
+      contentHash: string;
+    };
+
 export type StoryBeat = {
   id: string;
   order: number;
@@ -67,7 +112,7 @@ export type StoryBeat = {
   line: string;
   narrativeRole: NarrativeRole;
   intendedEmotion: string;
-  artKey: ArtKey;
+  visual: BeatArtwork;
 };
 
 export type StoryVersion = {
@@ -77,6 +122,7 @@ export type StoryVersion = {
   createdAt: string;
   source: Actor;
   reason: string;
+  visualContinuity: VisualContinuity;
   beats: StoryBeat[];
 };
 
@@ -108,6 +154,8 @@ export type ReactionSet = {
   storyHash: string;
   collectedAt: string | null;
   method: string;
+  /** Absent on older workspaces and treated as genuine imported human evidence. */
+  evidenceKind?: "human" | "rehearsal";
   responses: AudienceReaction[];
 };
 
@@ -167,12 +215,13 @@ export type HumanAudienceReport = {
 export type StudyBeat = Omit<StoryBeat, "intendedEmotion">;
 
 export type StudyStimulus = {
-  schema: "payoff-study/v1";
+  schema: "payoff-study/v2";
   projectId: string;
   title: string;
   format: string;
   storyVersionId: string;
   storyHash: string;
+  visualContinuity: VisualContinuity;
   beats: StudyBeat[];
 };
 
@@ -205,7 +254,7 @@ export type ActivityEntry = {
 };
 
 export type Workspace = {
-  schemaVersion: 3;
+  schemaVersion: 4;
   workflow: WorkflowState;
   project: ProjectBrief;
   activeVersionId: string;
@@ -220,7 +269,9 @@ export type Workspace = {
   activity: ActivityEntry[];
 };
 
-export type BeatDraft = Omit<StoryBeat, "id" | "order">;
+export type BeatDraft = Omit<StoryBeat, "id" | "order" | "visual"> & {
+  visual: BeatVisual;
+};
 
 export type StudyResponseExport = {
   schema: "payoff-study-response/v1";

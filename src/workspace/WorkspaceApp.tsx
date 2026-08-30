@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { diagnoseAudience, generateStoryboard, interpretHumanAudience, requestRevision, runAIAudience } from "../ai/client";
+import { hydratePreparedHumanAudience, prepareAvailableHumanAudienceData } from "../demo/provider";
 import {
   AI_AUDIENCE_NOTICE,
   type DiagnoseApiResponse,
@@ -18,7 +19,9 @@ import { PROJECT_BRIEF } from "../domain/seed";
 import { getActiveBeats, getActiveVersion, getTargetPayoff, isActiveVersionTested } from "../domain/selectors";
 import { payoffStore } from "../domain/store";
 import type { BeatDraft, ProjectBrief, StoryBeat } from "../domain/types";
+import { legacyVisualBrief } from "../domain/visuals";
 import { useWorkspace } from "../domain/useWorkspace";
+import { runtimeConfig } from "../runtime";
 import { studyShareUrl } from "../study/share";
 import { registerPayoffTools, type AgentCapability } from "../webmcp/tools";
 import { AudienceResultView } from "./AudienceResultView";
@@ -27,6 +30,8 @@ import { BeatEditor, ConfirmDialog, HistoryDialog, type EditorState } from "./Cr
 type AudienceMode = "ai" | "human";
 type GenerationState = { busy: boolean; error: string };
 type DefinitionDraft = { premise: string; feeling: string; format: string };
+type ComposerPosition = { x: number; y: number };
+type ComposerDragState = ComposerPosition & { pointerId: number; clientX: number; clientY: number };
 type ConfirmationState =
   | { kind: "start-over" }
   | { kind: "move"; beat: StoryBeat; direction: "earlier" | "later" }
@@ -47,7 +52,11 @@ const emptyDraft: BeatDraft = {
   line: "",
   narrativeRole: "escalation",
   intendedEmotion: "curiosity",
-  artKey: "conversation",
+  visual: legacyVisualBrief({
+    title: "New beat",
+    action: "Describe what visibly happens.",
+    intendedEmotion: "curiosity",
+  }),
 };
 
 const revisionSuggestions = [
@@ -77,7 +86,7 @@ function draftFromBeat(beat: StoryBeat): BeatDraft {
     line: beat.line,
     narrativeRole: beat.narrativeRole,
     intendedEmotion: beat.intendedEmotion,
-    artKey: beat.artKey,
+    visual: structuredClone(beat.visual.spec),
   };
 }
 
@@ -219,6 +228,15 @@ function ProjectSummary({ project, tested, revision }: { project: ProjectBrief; 
   );
 }
 
+function WorkspaceTabs({ isTestView, onSwitch }: { isTestView: boolean; onSwitch: (view: "storyboard" | "test") => void }) {
+  return (
+    <nav className="workspace-tabs" role="tablist" aria-label="Creator views">
+      <button role="tab" aria-selected={!isTestView} className={!isTestView ? "active" : ""} onClick={() => onSwitch("storyboard")}>Storyboard</button>
+      <button role="tab" aria-selected={isTestView} className={isTestView ? "active" : ""} onClick={() => onSwitch("test")}>Test the payoff</button>
+    </nav>
+  );
+}
+
 export function WorkspaceApp() {
   const workspace = useWorkspace();
   const beats = getActiveBeats(workspace);
@@ -231,6 +249,9 @@ export function WorkspaceApp() {
   const [notice, setNotice] = useState("");
   const [audienceMode, setAudienceMode] = useState<AudienceMode>("ai");
   const [creatorRequest, setCreatorRequest] = useState("");
+  const [composerOpen, setComposerOpen] = useState(false);
+  const [composerPosition, setComposerPosition] = useState<ComposerPosition>({ x: 0, y: 0 });
+  const [composerDragging, setComposerDragging] = useState(false);
   const [selectedBeatId, setSelectedBeatId] = useState<string | null>(null);
   const [testingContext, setTestingContext] = useState<string | null>(null);
   const [revisionResult, setRevisionResult] = useState<ReviseApiResponse | null>(null);
@@ -248,6 +269,7 @@ export function WorkspaceApp() {
   const [importSummary, setImportSummary] = useState("");
   const composerRef = useRef<HTMLElement>(null);
   const composerInputRef = useRef<HTMLTextAreaElement>(null);
+  const composerDrag = useRef<ComposerDragState | null>(null);
   const diagnosisRef = useRef<HTMLElement>(null);
   const diagnosisInputRef = useRef<HTMLInputElement>(null);
   const humanInterpretationAttempt = useRef("");
@@ -256,6 +278,15 @@ export function WorkspaceApp() {
   const audienceController = useRef<AbortController | null>(null);
   const humanAudienceController = useRef<AbortController | null>(null);
   const diagnosisController = useRef<AbortController | null>(null);
+
+  const closeRevisionComposer = useCallback(() => {
+    setComposerOpen(false);
+    setComposerPosition({ x: 0, y: 0 });
+    setComposerDragging(false);
+    composerDrag.current = null;
+    setRevisionResult(null);
+    setRevisionError("");
+  }, [setComposerDragging, setComposerOpen, setComposerPosition, setRevisionError, setRevisionResult]);
 
   useEffect(() => {
     let unregister: () => void = () => undefined;
@@ -273,6 +304,42 @@ export function WorkspaceApp() {
     humanAudienceController.current?.abort();
     diagnosisController.current?.abort();
   }, []);
+
+  useEffect(() => {
+    if (!composerOpen) return;
+    const keepInViewport = () => {
+      const composer = composerRef.current;
+      if (!composer) return;
+      const bounds = composer.getBoundingClientRect();
+      const maxX = Math.max(0, (window.innerWidth - bounds.width) / 2 - 12);
+      const maxY = Math.max(0, (window.innerHeight - bounds.height) / 2 - 12);
+      setComposerPosition((position) => {
+        const next = {
+          x: Math.min(maxX, Math.max(-maxX, position.x)),
+          y: Math.min(maxY, Math.max(-maxY, position.y)),
+        };
+        return next.x === position.x && next.y === position.y ? position : next;
+      });
+    };
+    const frame = window.requestAnimationFrame(keepInViewport);
+    const observer = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(keepInViewport);
+    if (composerRef.current) observer?.observe(composerRef.current);
+    window.addEventListener("resize", keepInViewport);
+    return () => {
+      window.cancelAnimationFrame(frame);
+      observer?.disconnect();
+      window.removeEventListener("resize", keepInViewport);
+    };
+  }, [composerOpen]);
+
+  useEffect(() => {
+    if (!composerOpen) return;
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") closeRevisionComposer();
+    };
+    window.addEventListener("keydown", closeOnEscape);
+    return () => window.removeEventListener("keydown", closeOnEscape);
+  }, [closeRevisionComposer, composerOpen]);
 
   const isTestView = workspace.workflow.stage === "test";
   const storyboardComplete = beats.length === 6;
@@ -296,7 +363,9 @@ export function WorkspaceApp() {
   const hasPriorTest = workspace.aiPreviews.length > 0 || workspace.reactionSet.responses.length > 0
     || workspace.reactionHistory.some((set) => set.responses.length > 0);
   const revealCards = ["start_project", "generate_storyboard"].includes(workspace.activity[0]?.action ?? "");
-  const debug = new URLSearchParams(window.location.search).get("debug") === "1";
+  const debug = runtimeConfig.debugMode;
+  const humanEvidenceIsRehearsal = workspace.reactionSet.storyVersionId === workspace.activeVersionId
+    && workspace.reactionSet.evidenceKind === "rehearsal";
 
   const interpretHumanResponses = useCallback(async () => {
     const current = payoffStore.getSnapshot();
@@ -349,7 +418,13 @@ export function WorkspaceApp() {
 
   useEffect(() => {
     if (!isTestView || audienceMode !== "human" || !storyboardComplete || activeHumanTest) return;
-    try { payoffStore.prepareHumanTest(); } catch { /* The visible Human Audience state handles incompleteness. */ }
+    try {
+      const stimulus = payoffStore.prepareHumanTest();
+      hydratePreparedHumanAudience(payoffStore, stimulus);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Human Audience data could not be prepared.";
+      window.queueMicrotask(() => setHumanAudienceError(message));
+    }
   }, [activeHumanTest, audienceMode, isTestView, storyboardComplete, workspace.activeVersionId]);
 
   useEffect(() => {
@@ -374,7 +449,12 @@ export function WorkspaceApp() {
   }
 
   function resetLocalFlow() {
+    setAudienceMode("ai");
     setCreatorRequest("");
+    setComposerOpen(false);
+    setComposerPosition({ x: 0, y: 0 });
+    setComposerDragging(false);
+    composerDrag.current = null;
     setSelectedBeatId(null);
     setTestingContext(null);
     setRevisionResult(null);
@@ -462,7 +542,12 @@ export function WorkspaceApp() {
         const request: StoryboardApiRequest = { premise: draft.premise, intended_feeling: draft.feeling, format: draft.format };
         const result = await withMinimumWait(generateStoryboard(request, controller.signal), controller.signal, 520);
         if (payoffStore.getSnapshot().activeVersionId !== expectedVersion) throw new Error("The story brief changed while Payoff was building. Try again from the current brief.");
-        payoffStore.installGeneratedStoryboard({ title: result.title, targetSummary: result.target_payoff, beats: result.beats }, expectedVersion, "agent");
+        payoffStore.installGeneratedStoryboard({
+          title: result.title,
+          targetSummary: result.target_payoff,
+          visualContinuity: result.visual_continuity,
+          beats: result.beats,
+        }, expectedVersion, "agent");
       }
       setGeneration({ busy: false, error: "" });
     } catch (error) {
@@ -481,20 +566,55 @@ export function WorkspaceApp() {
   function switchView(view: "storyboard" | "test") {
     if (view === "storyboard") payoffStore.closeTesting();
     else {
-      try { payoffStore.openTesting(); }
+      try {
+        payoffStore.openTesting();
+        prepareAvailableHumanAudienceData(payoffStore);
+      }
       catch (error) { showNotice(error instanceof Error ? error.message : "Complete the storyboard before testing it."); }
     }
   }
 
   function focusComposer(beatId: string | null = null) {
+    setComposerOpen(true);
+    setComposerPosition({ x: 0, y: 0 });
     setSelectedBeatId(beatId);
     setRevisionResult(null);
     setRevisionError("");
     payoffStore.closeTesting();
-    window.requestAnimationFrame(() => {
-      composerRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
-      composerInputRef.current?.focus();
+    window.requestAnimationFrame(() => composerInputRef.current?.focus());
+  }
+
+  function beginComposerDrag(event: React.PointerEvent<HTMLElement>) {
+    if ((event.pointerType === "mouse" && event.button !== 0)
+      || (event.target as HTMLElement).closest("button, input, textarea, select, a")) return;
+    composerDrag.current = {
+      pointerId: event.pointerId,
+      clientX: event.clientX,
+      clientY: event.clientY,
+      ...composerPosition,
+    };
+    event.currentTarget.setPointerCapture(event.pointerId);
+    setComposerDragging(true);
+  }
+
+  function moveComposer(event: React.PointerEvent<HTMLElement>) {
+    const drag = composerDrag.current;
+    const composer = composerRef.current;
+    if (!drag || !composer || drag.pointerId !== event.pointerId) return;
+    const bounds = composer.getBoundingClientRect();
+    const maxX = Math.max(0, (window.innerWidth - bounds.width) / 2 - 12);
+    const maxY = Math.max(0, (window.innerHeight - bounds.height) / 2 - 12);
+    setComposerPosition({
+      x: Math.min(maxX, Math.max(-maxX, drag.x + event.clientX - drag.clientX)),
+      y: Math.min(maxY, Math.max(-maxY, drag.y + event.clientY - drag.clientY)),
     });
+  }
+
+  function endComposerDrag(event: React.PointerEvent<HTMLElement>) {
+    if (composerDrag.current?.pointerId !== event.pointerId) return;
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId);
+    composerDrag.current = null;
+    setComposerDragging(false);
   }
 
   function saveEditor(value: EditorState) {
@@ -536,16 +656,16 @@ export function WorkspaceApp() {
     try {
       const result = await withMinimumWait(requestRevision({
         creator_request: creatorRequest.trim(),
-        story: { title: workspace.project.title, beats },
+        story: { id: workspace.project.id, title: workspace.project.title, beats },
         emotional_target: targetInput(workspace.project),
         selected_beat_id: selectedBeatId,
         expected_version: workspace.activeVersionId,
         testing_context: testingContext,
       }, controller.signal), controller.signal);
-      if (payoffStore.getSnapshot().activeVersionId !== result.story_version) throw new Error("The storyboard changed while Payoff was thinking. Ask again from the current story.");
+      if (payoffStore.getSnapshot().activeVersionId !== result.story_version) throw new Error("The story changed while Payoff was preparing this revision. Try again with the latest version.");
       setRevisionResult(result);
     } catch (error) {
-      if (!isAbort(error)) setRevisionError(error instanceof Error ? error.message : "Payoff couldn't prepare that revision. Your story was not changed.");
+      if (!isAbort(error)) setRevisionError(error instanceof Error ? error.message : "Payoff couldn't prepare that revision. Try again.");
     } finally { if (revisionController.current === controller) setRevisionBusy(false); }
   }
 
@@ -562,6 +682,7 @@ export function WorkspaceApp() {
       setCreatorRequest("");
       setSelectedBeatId(null);
       setTestingContext(null);
+      setComposerOpen(false);
       showNotice(`Applied ${result.affectedBeatIds.length === 1 ? "1 beat change" : `${result.affectedBeatIds.length} beat changes`}.`);
     } catch (error) { setRevisionError(error instanceof Error ? error.message : "The proposed changes could not be applied."); }
   }
@@ -647,8 +768,10 @@ export function WorkspaceApp() {
     setCreatorRequest("");
     setSelectedBeatId(null);
     setRevisionResult(null);
+    setComposerOpen(true);
+    setComposerPosition({ x: 0, y: 0 });
     payoffStore.closeTesting();
-    window.requestAnimationFrame(() => composerRef.current?.scrollIntoView({ behavior: "smooth", block: "center" }));
+    window.requestAnimationFrame(() => composerInputRef.current?.focus());
   }
 
   async function copyText(value: string, success: string) {
@@ -711,9 +834,8 @@ export function WorkspaceApp() {
   if (generationIncomplete) {
     return (
       <main className="creator-shell">
-        <header className="creator-nav">
+        <header className="creator-nav creator-nav--simple">
           <Brand />
-          <nav className="primary-views" role="tablist" aria-label="Creator views"><button role="tab" aria-selected="true">Storyboard</button><button role="tab" aria-selected="false" disabled>Test the payoff</button></nav>
           <div className="creator-nav__actions"><button className="secondary-button secondary-button--small" onClick={() => setConfirmation({ kind: "start-over" })}>Start over</button></div>
         </header>
         <GenerationExperience project={workspace.project} generation={generation} onRetry={retryGeneration} onStartOver={() => setConfirmation({ kind: "start-over" })} />
@@ -728,12 +850,8 @@ export function WorkspaceApp() {
 
   return (
     <main className="creator-shell">
-      <header className="creator-nav">
+      <header className="creator-nav creator-nav--simple">
         <Brand />
-        <nav className="primary-views" role="tablist" aria-label="Creator views">
-          <button role="tab" aria-selected={!isTestView} className={!isTestView ? "active" : ""} onClick={() => switchView("storyboard")}>Storyboard</button>
-          <button role="tab" aria-selected={isTestView} className={isTestView ? "active" : ""} onClick={() => switchView("test")}>Test the payoff</button>
-        </nav>
         <div className="creator-nav__actions">
           <button className="text-button" onClick={() => setHistoryOpen(true)}>History</button>
           <button className="secondary-button secondary-button--small" onClick={() => setConfirmation({ kind: "start-over" })}>Start over</button>
@@ -743,59 +861,36 @@ export function WorkspaceApp() {
       {!isTestView ? (
         <section className="creator-view storyboard-view" aria-labelledby="story-title">
           <ProjectSummary project={workspace.project} tested={tested} revision={revision} />
+          <WorkspaceTabs isTestView={false} onSwitch={switchView} />
           <div className="view-toolbar">
-            <div><span className="kicker">Storyboard</span><h2 id="story-title">Make the story say and feel what you intend.</h2></div>
+            <div className="storyboard-heading">
+              <h2 id="story-title">Storyboard</h2>
+              <button className="revise-toggle" type="button" aria-expanded={composerOpen} onClick={() => {
+                if (composerOpen) closeRevisionComposer();
+                else {
+                  setComposerOpen(true);
+                  setComposerPosition({ x: 0, y: 0 });
+                  setRevisionResult(null);
+                  setRevisionError("");
+                  window.requestAnimationFrame(() => composerInputRef.current?.focus());
+                }
+              }}><span aria-hidden="true">✦</span> Ask Payoff to revise</button>
+            </div>
             <div>
               {canUndo && <button className="text-button" onClick={() => showNotice(payoffStore.undoLastMutation("human")?.message ?? "There is no story change to undo.")}>Undo</button>}
               {beats.length < 6 && <button className="secondary-button" onClick={() => setEditor({ mode: "create", afterBeatId: beats.at(-1)?.id ?? null, draft: structuredClone(emptyDraft) })}>Add beat</button>}
               {storyboardComplete && <button className="primary-button" onClick={() => switchView("test")}>{!tested && hasPriorTest ? "Test again" : "Test the payoff"}</button>}
             </div>
           </div>
-
-          <section className="ai-composer" ref={composerRef} aria-labelledby="ai-composer-title">
-            <header><span className="composer-mark" aria-hidden="true">✦</span><div><h2 id="ai-composer-title">Ask Payoff to change the story...</h2><p>Give the creative direction. You'll review the proposed beat changes before anything is applied.</p></div></header>
-            {testingContext && <div className="testing-note"><span>{testingContext}</span><button onClick={() => setTestingContext(null)} aria-label="Dismiss testing note">×</button></div>}
-            {selectedBeat && <button className="selected-beat" onClick={() => setSelectedBeatId(null)}>Beat {selectedBeat.order} · {selectedBeat.title} <span>×</span></button>}
-            <div className="suggestion-row" aria-label="Revision examples">
-              {revisionSuggestions.map((suggestion) => <button key={suggestion} type="button" onClick={() => { setCreatorRequest(suggestion); composerInputRef.current?.focus(); }}>{suggestion}</button>)}
-            </div>
-            <form onSubmit={(event) => void askPayoff(event)}>
-              <textarea
-                ref={composerInputRef}
-                aria-label="Ask Payoff to change the story"
-                maxLength={500}
-                rows={2}
-                value={creatorRequest}
-                onChange={(event) => setCreatorRequest(event.target.value)}
-                placeholder={selectedBeat ? `What should change about “${selectedBeat.title}”?` : "Keep the reveal, but make the ending warmer."}
-              />
-              <button className="primary-button" type="submit" disabled={!creatorRequest.trim() || revisionBusy}>{revisionBusy ? "Planning changes..." : "Ask Payoff"}</button>
-            </form>
-            {revisionBusy && <p className="operation-status" role="status">Reading the full story and planning the smallest useful change…</p>}
-            {revisionError && <div className="inline-error" role="alert"><p>{revisionError}</p><button className="secondary-button secondary-button--small" onClick={() => void askPayoff()}>Try again</button></div>}
-            {currentRevisionResult && (
-              <section className={`revision-proposal revision-proposal--${currentRevisionResult.kind}`} aria-live="polite">
-                {currentRevisionResult.kind === "revision" ? (
-                  <>
-                    <span className="kicker">Proposed revision · story unchanged</span>
-                    <h3>What I'll change</h3>
-                    <ul>{currentRevisionResult.changes.map((change) => { const beat = beats.find((candidate) => candidate.id === change.beat_id); return <li key={change.beat_id}><strong>Beat {beat?.order ?? "?"}: {beat?.title}</strong><span>{change.what_changes}</span></li>; })}</ul>
-                    <h3>Why</h3><p>{currentRevisionResult.why}</p>
-                    <div><button className="primary-button" onClick={applyRevision}>Apply changes</button><button className="secondary-button" onClick={() => setRevisionResult(null)}>Cancel</button></div>
-                  </>
-                ) : (
-                  <><span className="kicker">One question before changing anything</span><h3>{currentRevisionResult.clarification_question}</h3><p>Your storyboard has not changed. Clarify the direction above and ask again.</p></>
-                )}
-              </section>
-            )}
-          </section>
-
           {beats.length < 6 && <div className="incomplete-story" role="status"><strong>This storyboard has {beats.length} of 6 beats.</strong><span>Undo the deletion or add a replacement before testing.</span></div>}
           <div className={`storyboard-grid${revealCards ? " storyboard-grid--revealing" : ""}`} aria-label="Ordered storyboard">
             {beats.map((beat, index) => (
               <StoryCard
                 key={beat.id}
                 beat={beat}
+                continuity={activeVersion.visualContinuity}
+                storyId={workspace.project.id}
+                versionId={workspace.activeVersionId}
                 changed={Boolean(latestStoryAction?.afterVersionId === workspace.activeVersionId && latestStoryAction.affectedBeatIds.includes(beat.id))}
                 onAskAI={(selected) => focusComposer(selected.id)}
                 onEdit={(selected) => setEditor({ mode: "replace", beatId: selected.id, draft: draftFromBeat(selected) })}
@@ -806,16 +901,78 @@ export function WorkspaceApp() {
               />
             ))}
           </div>
+
+          {composerOpen && (
+            <section
+              className={`ai-composer${composerDragging ? " ai-composer--dragging" : ""}`}
+              ref={composerRef}
+              role="dialog"
+              aria-modal="false"
+              aria-labelledby="ai-composer-title"
+              style={{ left: `calc(50% + ${composerPosition.x}px)`, top: `calc(50% + ${composerPosition.y}px)` }}
+            >
+              <header
+                title="Drag to move"
+                onPointerDown={beginComposerDrag}
+                onPointerMove={moveComposer}
+                onPointerUp={endComposerDrag}
+                onPointerCancel={endComposerDrag}
+              ><span className="composer-mark" aria-hidden="true">✦</span><div><h2 id="ai-composer-title">Ask Payoff to revise</h2><p>Give the creative direction. You'll review proposed beat changes before anything is applied.</p></div><span className="ai-composer__drag-grip" aria-hidden="true">⠿</span><button className="icon-button ai-composer__close" type="button" aria-label="Close revision composer" onClick={closeRevisionComposer}>×</button></header>
+              {testingContext && <div className="testing-note"><span>{testingContext}</span><button onClick={() => setTestingContext(null)} aria-label="Dismiss testing note">×</button></div>}
+              {selectedBeat && <button className="selected-beat" onClick={() => setSelectedBeatId(null)}>Beat {selectedBeat.order} · {selectedBeat.title} <span>×</span></button>}
+              <div className="suggestion-row" aria-label="Revision examples">
+                {revisionSuggestions.map((suggestion) => <button key={suggestion} type="button" onClick={() => { setCreatorRequest(suggestion); composerInputRef.current?.focus(); }}>{suggestion}</button>)}
+              </div>
+              <form onSubmit={(event) => void askPayoff(event)}>
+                <textarea
+                  ref={composerInputRef}
+                  aria-label="Ask Payoff to change the story"
+                  maxLength={500}
+                  rows={2}
+                  value={creatorRequest}
+                  onChange={(event) => setCreatorRequest(event.target.value)}
+                  placeholder={selectedBeat ? `What should change about “${selectedBeat.title}”?` : "Keep the reveal, but make the ending warmer."}
+                />
+                <button className="primary-button" type="submit" disabled={!creatorRequest.trim() || revisionBusy}>{revisionBusy ? "Planning changes..." : "Ask Payoff"}</button>
+              </form>
+              {revisionBusy && <p className="operation-status" role="status">Reading the full story and planning the smallest useful change…</p>}
+              {revisionError && <div className="inline-error" role="alert"><p>{revisionError}</p><button className="secondary-button secondary-button--small" onClick={() => void askPayoff()}>Try again</button></div>}
+              {currentRevisionResult && (
+                <section className={`revision-proposal revision-proposal--${currentRevisionResult.kind}`} aria-live="polite">
+                  {currentRevisionResult.kind === "revision" ? (
+                    <>
+                      <span className="kicker">Proposed revision · story unchanged</span>
+                      <h3>What I'll change</h3>
+                      <ul>{currentRevisionResult.changes.map((change) => {
+                        const beat = beats.find((candidate) => candidate.id === change.beat_id);
+                        return <li key={change.beat_id}>
+                          <strong>Beat {beat?.order ?? "?"}: {beat?.title}</strong>
+                          <span>{change.what_changes}</span>
+                          <small>Before</small><p>{beat?.action}</p>
+                          <small>After</small><p>{change.replacement.action}</p>
+                        </li>;
+                      })}</ul>
+                      <h3>Why</h3><p>{currentRevisionResult.why}</p>
+                      <div><button className="primary-button" onClick={applyRevision}>Apply changes</button><button className="secondary-button" onClick={closeRevisionComposer}>Cancel</button></div>
+                    </>
+                  ) : (
+                    <><span className="kicker">One question before changing anything</span><h3>{currentRevisionResult.clarification_question}</h3><p>Your storyboard has not changed. Clarify the direction above and ask again.</p></>
+                  )}
+                </section>
+              )}
+            </section>
+          )}
         </section>
       ) : (
         <section className="creator-view test-view" aria-labelledby="test-heading">
           <ProjectSummary project={workspace.project} tested={tested} revision={revision} />
+          <WorkspaceTabs isTestView onSwitch={switchView} />
           <header className="test-heading">
             <div><span className="kicker">Test the payoff</span><h2 id="test-heading">Did it land?</h2><p><strong>You wanted:</strong> {getTargetPayoff(workspace)}</p></div>
           </header>
           <div className="audience-tabs" role="tablist" aria-label="Audience source">
             <button role="tab" aria-selected={audienceMode === "ai"} className={audienceMode === "ai" ? "active" : ""} onClick={() => { setAudienceMode("ai"); setDiagnosisOpen(false); setDiagnosisError(""); }}>AI Audience<span>Fast simulated perspective check</span></button>
-            <button role="tab" aria-selected={audienceMode === "human"} className={audienceMode === "human" ? "active" : ""} onClick={() => { setAudienceMode("human"); setDiagnosisOpen(false); setDiagnosisError(""); }}>Human Audience<span>Real target-blind viewers</span></button>
+            <button role="tab" aria-selected={audienceMode === "human"} className={audienceMode === "human" ? "active" : ""} onClick={() => { setAudienceMode("human"); setDiagnosisOpen(false); setDiagnosisError(""); }}>Human Audience<span>{humanEvidenceIsRehearsal ? "Rehearsal data · not real viewers" : "Real target-blind viewers"}</span></button>
           </div>
 
           {audienceMode === "ai" ? (
@@ -868,7 +1025,7 @@ export function WorkspaceApp() {
                   </details>
                 </section>
               )}
-              {humanAudienceBusy && <div className="analysis-loading analysis-loading--compact" role="status"><span className="generation-spark">✦</span><div><h3>Making sense of viewer responses...</h3><p>Organizing only the reactions real viewers submitted.</p></div></div>}
+              {humanAudienceBusy && <div className="analysis-loading analysis-loading--compact" role="status"><span className="generation-spark">✦</span><div><h3>{humanEvidenceIsRehearsal ? "Organizing rehearsal responses..." : "Making sense of viewer responses..."}</h3><p>{humanEvidenceIsRehearsal ? "Running the synthetic fixture through the same Human Audience report pipeline." : "Organizing only the reactions real viewers submitted."}</p></div></div>}
               {humanAudienceError && <div className="inline-error" role="alert"><p>{humanAudienceError}</p><button className="secondary-button secondary-button--small" onClick={() => { setHumanAudienceError(""); humanInterpretationAttempt.current = ""; void interpretHumanResponses(); }}>Try again</button></div>}
               {importSummary && <p className="import-summary" role="status">{importSummary}</p>}
               {workspace.reactionHistory.some((set) => set.responses.length > 0) && <p className="preserved-evidence">Previous Human Audience evidence remains preserved on the story version it tested.</p>}
@@ -895,7 +1052,7 @@ export function WorkspaceApp() {
         </section>
       )}
 
-      {debug && <details className="debug-surface"><summary>Developer details</summary><p>WebMCP: {agentCapability}. Eight primitive story and evidence tools remain registered when supported.</p></details>}
+      {debug && <details className="debug-surface"><summary>Developer details</summary><p>{runtimeConfig.demoMode ? "Demo cache active. " : ""}WebMCP: {agentCapability}. Eight primitive story and evidence tools remain registered when supported.</p></details>}
       <div className="sr-only" aria-live="polite">{notice}</div>
       {notice && <div className="toast" role="status">{notice}</div>}
       {editor && <BeatEditor editor={editor} onClose={() => setEditor(null)} onSave={saveEditor} />}

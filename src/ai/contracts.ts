@@ -1,4 +1,4 @@
-import type { AIPersona, AudienceReaction, BeatDraft, StoryBeat } from "../domain/types";
+import type { AIPersona, AudienceReaction, BeatDraft, StoryBeat, VisualContinuity } from "../domain/types";
 
 export const AI_AUDIENCE_LABEL = "AI-simulated audience" as const;
 export const AI_AUDIENCE_NOTICE = "Useful as an early check. Not human evidence." as const;
@@ -21,7 +21,39 @@ export type StoryboardApiRequest = {
 export type StoryboardApiResponse = {
   title: string;
   target_payoff: string;
+  visual_continuity: VisualContinuity;
   beats: BeatDraft[];
+};
+
+export type SceneApiRequest = {
+  content_hash: string;
+  continuity: VisualContinuity;
+  beat: BeatDraft;
+  context?: {
+    story_id: string;
+    version_id: string;
+    beat_id: string;
+    beat_number: number;
+  };
+  continuity_reference?: SceneContinuityReference;
+  force?: boolean;
+};
+
+export type SceneContinuityReference = {
+  content_hash: string;
+  environment_image_data_url: string;
+  characters: Array<{ id: string; image_data_url: string }>;
+  previous_scene?: {
+    beat_number: number;
+    beat_title: string;
+    image_data_url: string;
+  };
+};
+
+export type SceneApiResponse = {
+  content_hash: string;
+  image_data_url: string;
+  continuity_reference: SceneContinuityReference;
 };
 
 export type AudienceApiRequest = {
@@ -82,7 +114,7 @@ export type HumanAudienceApiResponse = AudienceReportFields<AudienceMatch | "ins
 
 export type ReviseApiRequest = {
   creator_request: string;
-  story: { title: string; beats: StoryBeat[] };
+  story: { id: string; title: string; beats: StoryBeat[] };
   emotional_target: EmotionalTargetInput;
   selected_beat_id: string | null;
   expected_version: string;

@@ -1,5 +1,5 @@
-import { describe, expect, it } from "vitest";
-import { BASELINE_BEATS, BASELINE_CONTENT_HASH, BASELINE_VERSION_ID, PROJECT_BRIEF } from "../src/domain/seed";
+import { describe, expect, it, vi } from "vitest";
+import { BASELINE_BEATS, BASELINE_CONTENT_HASH, BASELINE_VERSION_ID, LOOKS_GREAT_CONTINUITY, PROJECT_BRIEF } from "../src/domain/seed";
 import { handleAudience, handleDiagnose, handleRevise, handleStoryboard } from "./handlers";
 import { createOpenAIProvider, type PayoffAIProvider } from "./openaiProvider";
 
@@ -21,13 +21,14 @@ const storyboardInput = {
 const storyboardOutput = {
   title: "The Wrong Kind of Ready",
   target_payoff: "Confidence → surprise → warmth",
+  visual_continuity: LOOKS_GREAT_CONTINUITY,
   beats: BASELINE_BEATS.map((beat) => ({
     title: beat.title,
     action: beat.action,
     line: beat.line,
     narrativeRole: beat.narrativeRole,
     intendedEmotion: beat.intendedEmotion,
-    artKey: beat.artKey,
+    visual: beat.visual.spec,
   })),
 };
 
@@ -99,7 +100,7 @@ const humanAudienceOutput = {
 
 const revisionInput = {
   creator_request: "Make Dad seem busy rather than uncaring.",
-  story: { title: PROJECT_BRIEF.title, beats: BASELINE_BEATS },
+  story: { id: PROJECT_BRIEF.id, title: PROJECT_BRIEF.title, beats: BASELINE_BEATS },
   emotional_target: emotionalTarget,
   selected_beat_id: null,
   expected_version: BASELINE_VERSION_ID,
@@ -114,9 +115,20 @@ const revisionOutput = {
   changes: [{
     beat_id: "beat-1",
     what_changes: "Dad's distraction gets a visible cause.",
-    replacement: {
-      ...storyboardOutput.beats[0],
-      action: "A girl holds up a drawing while Dad handles a ringing work call and looks apologetically toward her.",
+    title: null,
+    action: "A girl holds up a drawing while Dad handles a ringing work call and looks apologetically toward her.",
+    line: null,
+    narrative_role: null,
+    intended_emotion: null,
+    visual_direction: {
+      setting: null,
+      character_updates: [{ id: "dad", position: null, action: "Handles a ringing work call while glancing apologetically toward his daughter." }],
+      focal_action: "The daughter offers her drawing while Dad visibly handles an interrupting work call and acknowledges her.",
+      focal_object: null,
+      composition: null,
+      emotional_cue: null,
+      visible_text: null,
+      continuity_notes: [],
     },
   }],
 };
@@ -154,6 +166,9 @@ const diagnosisOutput = {
 function provider(overrides: Partial<PayoffAIProvider> = {}): PayoffAIProvider {
   return {
     storyboard: async () => storyboardOutput,
+    reviewStoryboard: async () => ({ passed: true, issues: [] }),
+    repairStoryboard: async (_input, draft) => draft,
+    verifyStoryboardRepair: async () => ({ passed: true, unresolved: [] }),
     audience: async () => audienceOutput,
     humanAudience: async () => humanAudienceOutput,
     diagnose: async () => diagnosisOutput,
@@ -172,6 +187,117 @@ describe("Payoff AI API handlers", () => {
     const invalid = await handleStoryboard("POST", storyboardInput, provider({ storyboard: async () => ({ ...storyboardOutput, beats: storyboardOutput.beats.slice(0, 5) }) }));
     expect(invalid.status).toBe(502);
     expect(invalid.body).toHaveProperty("error.code", "INVALID_AI_RESPONSE");
+  });
+
+  it("repairs weak storyboard titles once before they reach the creator", async () => {
+    const weak = {
+      ...storyboardOutput,
+      beats: storyboardOutput.beats.map((beat, index) => index === 1 ? { ...beat, title: "Again" } : beat),
+    };
+    const repairStoryboard = vi.fn(async () => storyboardOutput);
+    const result = await handleStoryboard("POST", storyboardInput, provider({
+      storyboard: async () => weak,
+      repairStoryboard,
+    }));
+
+    expect(result.status).toBe(200);
+    expect(result.body.beats).toEqual(storyboardOutput.beats);
+    expect(repairStoryboard).toHaveBeenCalledTimes(1);
+  });
+
+  it("requires an explicit time-of-day and lighting baseline before generating scene art", async () => {
+    const legacyContinuity = { ...storyboardOutput.visual_continuity };
+    delete legacyContinuity.timeOfDay;
+    delete legacyContinuity.lighting;
+    const missingBaseline = { ...storyboardOutput, visual_continuity: legacyContinuity };
+    const repairStoryboard = vi.fn(async () => storyboardOutput);
+
+    const result = await handleStoryboard("POST", storyboardInput, provider({
+      storyboard: async () => missingBaseline,
+      repairStoryboard,
+    }));
+
+    expect(result.status).toBe(200);
+    expect(repairStoryboard).toHaveBeenCalledWith(
+      storyboardInput,
+      missingBaseline,
+      expect.arrayContaining([
+        expect.stringContaining("time-of-day baseline"),
+        expect.stringContaining("lighting and color-temperature baseline"),
+      ]),
+    );
+  });
+
+  it("repairs a beat whose visual result depends on an open or closed scorecard", async () => {
+    const scorecardDraft = {
+      ...storyboardOutput,
+      beats: storyboardOutput.beats.map((beat, index) => index === 3 ? {
+        ...beat,
+        title: "Scorecards Stay Closed",
+        action: "The judges huddle over closed scorecards while the baker mistakes their silence for rejection.",
+        visual: {
+          ...beat.visual,
+          focalAction: "The closed scorecards conceal the result while the baker turns away.",
+          focalObject: "Closed scorecards.",
+        },
+      } : beat),
+    };
+    const repairStoryboard = vi.fn(async () => storyboardOutput);
+
+    const result = await handleStoryboard("POST", storyboardInput, provider({
+      storyboard: async () => scorecardDraft,
+      repairStoryboard,
+    }));
+
+    expect(result.status).toBe(200);
+    expect(repairStoryboard).toHaveBeenCalledWith(
+      storyboardInput,
+      scorecardDraft,
+      expect.arrayContaining([expect.stringContaining("depends on reading or inferring a scorecard state")]),
+    );
+  });
+
+  it("retries one malformed storyboard response before failing the request", async () => {
+    const storyboard = vi.fn()
+      .mockResolvedValueOnce({ ...storyboardOutput, target_payoff: "x".repeat(161) })
+      .mockResolvedValueOnce(storyboardOutput);
+
+    const result = await handleStoryboard("POST", storyboardInput, provider({ storyboard }));
+
+    expect(result.status).toBe(200);
+    expect(storyboard).toHaveBeenCalledTimes(2);
+  });
+
+  it("rejects a storyboard that remains weak after the bounded repair pass", async () => {
+    const weak = {
+      ...storyboardOutput,
+      beats: storyboardOutput.beats.map((beat, index) => index === 1 ? { ...beat, title: "The payoff" } : beat),
+    };
+    const result = await handleStoryboard("POST", storyboardInput, provider({
+      storyboard: async () => weak,
+      repairStoryboard: async () => weak,
+    }));
+
+    expect(result.status).toBe(502);
+    expect(result.body).toHaveProperty("error.code", "INVALID_AI_RESPONSE");
+  });
+
+  it("withholds a structurally valid repair when an original semantic failure remains unresolved", async () => {
+    const weak = {
+      ...storyboardOutput,
+      beats: storyboardOutput.beats.map((beat, index) => index === 1 ? { ...beat, title: "Again" } : beat),
+    };
+    const result = await handleStoryboard("POST", storyboardInput, provider({
+      storyboard: async () => weak,
+      repairStoryboard: async () => storyboardOutput,
+      verifyStoryboardRepair: async () => ({
+        passed: false,
+        unresolved: [{ issue_number: 1, explanation: "The repaired beat still repeats the same visible event." }],
+      }),
+    }));
+
+    expect(result.status).toBe(502);
+    expect(result.body).toHaveProperty("error.code", "INVALID_AI_RESPONSE");
   });
 
   it("rejects prose that trails off before it can reach the creator UI", async () => {
@@ -200,12 +326,14 @@ describe("Payoff AI API handlers", () => {
         ...revisionOutput,
         changes: revisionOutput.changes.map((change) => ({
           ...change,
-          replacement: { ...change.replacement, action: "Dad silences his work call and looks back toward her" },
+          action: "Dad silences his work call and looks back toward her",
         })),
       }),
     }));
-    expect(revision.status).toBe(502);
-    expect(revision.body).toHaveProperty("error.code", "INVALID_AI_RESPONSE");
+    expect(revision.status).toBe(200);
+    expect(revision.body.changes).toEqual([expect.objectContaining({
+      replacement: expect.objectContaining({ action: "Dad silences his work call and looks back toward her." }),
+    })]);
 
     const diagnosis = await handleDiagnose("POST", diagnosisInput, provider({
       diagnose: async () => ({
@@ -273,7 +401,23 @@ describe("Payoff AI API handlers", () => {
     expect(result.body.changes).toHaveLength(1);
 
     const selected = { ...revisionInput, selected_beat_id: "beat-2" };
-    expect((await handleRevise("POST", selected, provider())).status).toBe(502);
+    const selectedResult = await handleRevise("POST", selected, provider());
+    expect(selectedResult.status).toBe(200);
+    expect(selectedResult.body.changes).toEqual([expect.objectContaining({ beat_id: "beat-2" })]);
+
+    const sparseVisual = await handleRevise("POST", revisionInput, provider({
+      revise: async () => ({
+        ...revisionOutput,
+        changes: revisionOutput.changes.map((change) => ({
+          ...change,
+          visual_direction: null,
+        })),
+      }),
+    }));
+    expect(sparseVisual.status).toBe(200);
+    expect(sparseVisual.body.changes).toEqual([expect.objectContaining({
+      replacement: expect.objectContaining({ visual: expect.objectContaining({ focalAction: expect.stringContaining("ringing work call") }) }),
+    })]);
   });
 
   it("accepts clarification only when it contains no changes", async () => {
@@ -281,17 +425,52 @@ describe("Payoff AI API handlers", () => {
       revise: async () => ({
         kind: "clarification",
         summary: "The requested tone could go in two directions.",
-        why: null,
+        why: "Both interpretations would produce materially different staging.",
         clarification_question: "Should Dad seem hurried or emotionally guarded?",
         changes: [],
       }),
     }));
     expect(clarification.status).toBe(200);
 
-    const invalid = await handleRevise("POST", revisionInput, provider({
-      revise: async () => ({ ...revisionOutput, kind: "clarification", clarification_question: "Which direction?" }),
-    }));
+    const invalid = await handleRevise("POST", revisionInput, provider({ revise: async () => ({ kind: "clarification", summary: null, why: null, clarification_question: null, changes: [] }) }));
     expect(invalid.status).toBe(502);
+  });
+
+  it("treats the exact floower request as a proposal or clarification, never a generic failure", async () => {
+    const exactInput = {
+      ...revisionInput,
+      creator_request: "instead of sticking her drawing to the refrigerator, have her stick her drawing to the floower",
+    };
+    const clarification = await handleRevise("POST", exactInput, provider({
+      revise: async () => ({
+        kind: "clarification",
+        summary: "The destination word could mean two things.",
+        why: "Floor and flower require different visual staging.",
+        clarification_question: "Did you mean the floor or a flower?",
+        changes: [],
+      }),
+    }));
+    expect(clarification.status).toBe(200);
+    expect(clarification.body).toMatchObject({ kind: "clarification", clarification_question: "Did you mean the floor or a flower?" });
+
+    expect(clarification.body).not.toHaveProperty("error");
+  });
+
+  it("runs one bounded structured-output recovery and reports its classified outcome", async () => {
+    let attempts = 0;
+    const info = vi.spyOn(console, "info").mockImplementation(() => undefined);
+    const result = await handleRevise("POST", revisionInput, provider({
+      revise: async (_input, options) => {
+        attempts += 1;
+        if (attempts === 1) return { kind: "revision", changes: [{ beat_id: "invented" }] };
+        expect(options).toMatchObject({ attempt: 2, repairFeedback: expect.any(String) });
+        return revisionOutput;
+      },
+    }));
+    expect(result.status).toBe(200);
+    expect(attempts).toBe(2);
+    expect(info.mock.calls.some((call) => String(call[1]).includes('"retry_result":"recovered"'))).toBe(true);
+    info.mockRestore();
   });
 
   it("fails safely for bad requests, missing configuration, provider errors, and non-POST methods", async () => {

@@ -1,0 +1,40 @@
+{
+  "kind": "revision",
+  "summary": "Make the first beat establish Dad's automatic response before his daughter can finish asking.",
+  "why": "One earlier response makes the opening move immediately while preserving the repetition, reveal, and repair.",
+  "clarification_question": null,
+  "changes": [
+    {
+      "beat_id": "beat-1",
+      "what_changes": "Dad answers reflexively before the drawing is fully raised.",
+      "title": "Already answering",
+      "action": "Before his daughter finishes raising the drawing, Dad says “Looks great” without lifting his eyes from his phone.",
+      "line": null,
+      "narrative_role": null,
+      "intended_emotion": null,
+      "visual_direction": {
+        "setting": null,
+        "character_updates": [
+          {
+            "id": "daughter",
+            "position": "Standing at the left edge of the table, still raising the drawing toward Dad.",
+            "action": "Lifts the drawing from chest height toward Dad, hopeful and not yet finished presenting it."
+          },
+          {
+            "id": "dad",
+            "position": null,
+            "action": "Keeps his eyes on the phone while lifting his free hand in an automatic reassuring gesture."
+          }
+        ],
+        "focal_action": "Dad answers automatically while the daughter's drawing is still being raised and his gaze stays on the phone.",
+        "focal_object": "The half-raised drawing contrasted with Dad's phone and reflexive free-hand gesture.",
+        "composition": "Keep the drawing mid-offer between them, Dad's phone-focused gaze unmistakable, and the lower center clear for the product-controlled line.",
+        "emotional_cue": "Her hopeful momentum meets his practiced, unintentional inattention.",
+        "visible_text": "LOOKS GREAT",
+        "continuity_notes": [
+          "Preserve the exact daughter, Dad, apartment, wardrobe, phone, drawing palette, and warm-neutral daylight."
+        ]
+      }
+    }
+  ]
+}
