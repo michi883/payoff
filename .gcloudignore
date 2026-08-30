@@ -1,0 +1,14 @@
+.gcloudignore
+.git
+.github
+.env
+.env.*
+!.env.example
+node_modules
+dist
+dist-server
+coverage
+playwright-report
+test-results
+*.log
+.DS_Store
