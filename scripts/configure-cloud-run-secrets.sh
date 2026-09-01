@@ -13,12 +13,7 @@ set -a
 source "$ENV_FILE"
 set +a
 
-CONFIGURED_PROJECT="$(gcloud config get-value project 2>/dev/null)"
-PROJECT_ID="${GCP_PROJECT_ID:-$CONFIGURED_PROJECT}"
-if [[ -z "$PROJECT_ID" || "$PROJECT_ID" == "(unset)" ]]; then
-  echo "No Google Cloud project configured. Set GCP_PROJECT_ID or run: gcloud config set project PROJECT_ID" >&2
-  exit 1
-fi
+PROJECT_ID="${GCP_PROJECT_ID:-payoff-507012}"
 
 gcloud services enable secretmanager.googleapis.com --project "$PROJECT_ID"
 

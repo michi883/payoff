@@ -1,12 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-CONFIGURED_PROJECT="$(gcloud config get-value project 2>/dev/null)"
-PROJECT_ID="${GCP_PROJECT_ID:-$CONFIGURED_PROJECT}"
-if [[ -z "$PROJECT_ID" || "$PROJECT_ID" == "(unset)" ]]; then
-  echo "No Google Cloud project configured. Set GCP_PROJECT_ID or run: gcloud config set project PROJECT_ID" >&2
-  exit 1
-fi
+PROJECT_ID="${GCP_PROJECT_ID:-payoff-507012}"
 REGION="${GCP_REGION:-us-central1}"
 SERVICE_NAME="${CLOUD_RUN_SERVICE:-payoff}"
 REPOSITORY="${ARTIFACT_REPOSITORY:-payoff}"
@@ -58,6 +53,10 @@ fi
 gcloud projects add-iam-policy-binding "$PROJECT_ID" \
   --member="${ACTIVE_ACCOUNT_KIND}:${ACTIVE_ACCOUNT}" \
   --role="roles/cloudbuild.builds.editor" \
+  --condition=None >/dev/null
+gcloud projects add-iam-policy-binding "$PROJECT_ID" \
+  --member="${ACTIVE_ACCOUNT_KIND}:${ACTIVE_ACCOUNT}" \
+  --role="roles/serviceusage.serviceUsageConsumer" \
   --condition=None >/dev/null
 gcloud projects add-iam-policy-binding "$PROJECT_ID" \
   --member="serviceAccount:${DEFAULT_COMPUTE_ACCOUNT}" \

@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { BASELINE_BEATS, BASELINE_CONTENT_HASH, BASELINE_VERSION_ID, LOOKS_GREAT_CONTINUITY, PROJECT_BRIEF } from "../src/domain/seed";
-import { handleAudience, handleDiagnose, handleRevise, handleStoryboard } from "./handlers";
+import { deterministicStoryboardIssues, handleAudience, handleDiagnose, handleRevise, handleStoryboard, normalizeStoryboardContinuity } from "./handlers";
 import { createOpenAIProvider, type PayoffAIProvider } from "./openaiProvider";
 
 const emotionalTarget = {
@@ -282,7 +282,43 @@ describe("Payoff AI API handlers", () => {
     expect(result.body).toHaveProperty("error.code", "INVALID_AI_RESPONSE");
   });
 
-  it("withholds a structurally valid repair when an original semantic failure remains unresolved", async () => {
+  it("recovers a beat character the model left off the continuity roster", async () => {
+    const missingRoster = {
+      ...storyboardOutput,
+      visual_continuity: {
+        ...storyboardOutput.visual_continuity,
+        characters: storyboardOutput.visual_continuity.characters.filter((character) => character.id !== "dad"),
+      },
+    };
+    expect(deterministicStoryboardIssues(missingRoster)).toContainEqual(expect.stringContaining("without an established continuity identity"));
+
+    const normalized = normalizeStoryboardContinuity(missingRoster);
+
+    expect(normalized.visual_continuity.characters.map((character) => character.id)).toContain("dad");
+    expect(deterministicStoryboardIssues(normalized)).toEqual([]);
+  });
+
+  it("canonicalizes a paraphrased beat appearance back to the roster identity", async () => {
+    const paraphrased = {
+      ...storyboardOutput,
+      beats: storyboardOutput.beats.map((beat, index) => index !== 0 ? beat : {
+        ...beat,
+        visual: {
+          ...beat.visual,
+          characters: beat.visual.characters.map((character) => ({ ...character, appearance: `${character.appearance} looking a little tired` })),
+        },
+      }),
+    };
+    expect(deterministicStoryboardIssues(paraphrased)).toContainEqual(expect.stringContaining("changes the established appearance"));
+
+    const normalized = normalizeStoryboardContinuity(paraphrased);
+
+    expect(normalized.beats[0].visual.characters.map((character) => character.appearance))
+      .toEqual(storyboardOutput.beats[0].visual.characters.map((character) => character.appearance));
+    expect(deterministicStoryboardIssues(normalized)).toEqual([]);
+  });
+
+  it("delivers a structurally valid repair when only a subjective verification note remains", async () => {
     const weak = {
       ...storyboardOutput,
       beats: storyboardOutput.beats.map((beat, index) => index === 1 ? { ...beat, title: "Again" } : beat),
@@ -296,8 +332,26 @@ describe("Payoff AI API handlers", () => {
       }),
     }));
 
-    expect(result.status).toBe(502);
-    expect(result.body).toHaveProperty("error.code", "INVALID_AI_RESPONSE");
+    expect(result.status).toBe(200);
+    expect(result.body.beats).toHaveLength(6);
+    expect(result.body.beats).toEqual(storyboardOutput.beats);
+  });
+
+  it("falls back to the draft when the repair pass breaks the objective contract", async () => {
+    const brokenRepair = {
+      ...storyboardOutput,
+      beats: storyboardOutput.beats.map((beat, index) => index === 1 ? { ...beat, title: "The payoff" } : beat),
+    };
+    const result = await handleStoryboard("POST", storyboardInput, provider({
+      reviewStoryboard: async () => ({
+        passed: false,
+        issues: [{ beat_number: 2, code: "description" as const, problem: "The second beat reads flat.", repair_instruction: "Sharpen the visible action." }],
+      }),
+      repairStoryboard: async () => brokenRepair,
+    }));
+
+    expect(result.status).toBe(200);
+    expect(result.body.beats).toEqual(storyboardOutput.beats);
   });
 
   it("rejects prose that trails off before it can reach the creator UI", async () => {

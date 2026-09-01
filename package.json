@@ -14,6 +14,8 @@
     "build": "tsc -b && vite build && vite build --config vite.server.config.ts",
     "check": "npm run lint && npm test && npm run build",
     "start": "node dist-server/server.js",
+    "configure:production-secrets": "bash scripts/configure-cloud-run-secrets.sh",
+    "deploy:production": "npm run check && bash scripts/deploy-cloud-run.sh",
     "lint": "eslint .",
     "test": "vitest run",
     "test:watch": "vitest",

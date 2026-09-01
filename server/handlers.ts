@@ -64,6 +64,37 @@ function normalizedPhrase(value: string) {
   return value.toLowerCase().replace(/[^a-z0-9\s]/gu, " ").replace(/\s+/gu, " ").trim();
 }
 
+/** Matches the cast ceiling in VisualContinuitySchema. */
+const MAX_CONTINUITY_CHARACTERS = 8;
+
+/**
+ * Reconciles the cast roster with the beats before the contract is checked. Models routinely use a
+ * character in a beat without adding it to visual_continuity, or paraphrase an established
+ * appearance. Both break the scene pipeline, which resolves every beat character against the
+ * roster, and both are recoverable without another model call: the beat already carries a full
+ * identity description, and the roster is the declared source of truth for a stable appearance.
+ */
+export function normalizeStoryboardContinuity(output: StoryboardModelOutput): StoryboardModelOutput {
+  const roster = output.visual_continuity.characters.map((character) => ({ ...character }));
+  const byId = new Map(roster.map((character) => [character.id.toLowerCase(), character]));
+  const beats = output.beats.map((beat) => ({
+    ...beat,
+    visual: {
+      ...beat.visual,
+      characters: beat.visual.characters.map((character) => {
+        const established = byId.get(character.id.toLowerCase());
+        if (established) return { ...character, appearance: established.appearance };
+        if (roster.length >= MAX_CONTINUITY_CHARACTERS) return character;
+        const added = { id: character.id, appearance: character.appearance };
+        roster.push(added);
+        byId.set(added.id.toLowerCase(), added);
+        return character;
+      }),
+    },
+  }));
+  return { ...output, visual_continuity: { ...output.visual_continuity, characters: roster }, beats };
+}
+
 export function deterministicStoryboardIssues(output: StoryboardModelOutput) {
   const parsed = StoryboardModelOutputSchema.safeParse(output);
   if (!parsed.success) return ["The storyboard did not match the required structured contract."];
@@ -262,44 +293,58 @@ export async function handleStoryboard(method: string | undefined, body: unknown
       });
       return errorResult(502, "INVALID_AI_RESPONSE", "Payoff couldn't finish that storyboard. Your brief is safe.", true);
     }
+    const draft = normalizeStoryboardContinuity(initial.data);
     log("info", "storyboard_visual_briefs_ready", {
-      beat_count: initial.data.beats.length,
-      character_count: initial.data.visual_continuity.characters.length,
-      setting_count: initial.data.visual_continuity.settings.length,
-      prop_count: initial.data.visual_continuity.importantProps.length,
-      time_of_day: initial.data.visual_continuity.timeOfDay,
-      lighting: initial.data.visual_continuity.lighting,
+      beat_count: draft.beats.length,
+      character_count: draft.visual_continuity.characters.length,
+      roster_entries_recovered: draft.visual_continuity.characters.length - initial.data.visual_continuity.characters.length,
+      setting_count: draft.visual_continuity.settings.length,
+      prop_count: draft.visual_continuity.importantProps.length,
+      time_of_day: draft.visual_continuity.timeOfDay,
+      lighting: draft.visual_continuity.lighting,
     });
     const initialIssues = [
-      ...deterministicStoryboardIssues(initial.data),
-      ...reviewIssues(await provider.reviewStoryboard(input.data, initial.data)),
+      ...deterministicStoryboardIssues(draft),
+      ...reviewIssues(await provider.reviewStoryboard(input.data, draft)),
     ];
     log(initialIssues.length === 0 ? "info" : "warn", "storyboard_quality_reviewed", { issue_count: initialIssues.length, issues: initialIssues });
     if (initialIssues.length === 0) {
       log("info", "storyboard_generation_completed", { phase: "initial", latency_ms: Date.now() - startedAt });
-      return { status: 200, body: initial.data };
+      return { status: 200, body: draft };
     }
 
     log("warn", "storyboard_repair_started", { issue_count: initialIssues.length });
-    const repaired = StoryboardModelOutputSchema.safeParse(await provider.repairStoryboard(input.data, initial.data, initialIssues));
+    const repaired = StoryboardModelOutputSchema.safeParse(await provider.repairStoryboard(input.data, draft, initialIssues));
     if (!repaired.success) {
       log("error", "storyboard_repair_failed", { classification: "malformed_output", issue: repaired.error.issues[0]?.message });
       return errorResult(502, "INVALID_AI_RESPONSE", "Payoff couldn't finish that storyboard. Your brief is safe.", true);
     }
-    const repairedIssues = deterministicStoryboardIssues(repaired.data);
-    if (repairedIssues.length === 0) {
-      repairedIssues.push(...repairVerificationIssues(
-        await provider.verifyStoryboardRepair(input.data, repaired.data, initialIssues),
-        initialIssues.length,
-      ));
-    }
+    const repairedDraft = normalizeStoryboardContinuity(repaired.data);
+    const repairedIssues = deterministicStoryboardIssues(repairedDraft);
     if (repairedIssues.length > 0) {
+      // The repair pass broke the objective contract. Ship the draft when it still holds;
+      // a worse rewrite must never destroy a storyboard that already satisfied the contract.
+      const draftIssues = deterministicStoryboardIssues(draft);
       console.warn("[Payoff AI:storyboard-quality]", JSON.stringify({ initial_issues: initialIssues, repaired_issues: repairedIssues }));
-      log("error", "storyboard_repair_failed", { classification: "quality_gate", repaired_issues: repairedIssues, latency_ms: Date.now() - startedAt });
-      return errorResult(502, "INVALID_AI_RESPONSE", "Payoff couldn't finish that storyboard. Your brief is safe.", true);
+      if (draftIssues.length > 0) {
+        log("error", "storyboard_repair_failed", { classification: "quality_gate", repaired_issues: repairedIssues, draft_issues: draftIssues, latency_ms: Date.now() - startedAt });
+        return errorResult(502, "INVALID_AI_RESPONSE", "Payoff couldn't finish that storyboard. Your brief is safe.", true);
+      }
+      log("warn", "storyboard_generation_completed", { phase: "draft_fallback", repaired_issues: repairedIssues, latency_ms: Date.now() - startedAt });
+      return { status: 200, body: draft };
     }
-    log("info", "storyboard_generation_completed", { phase: "repair", latency_ms: Date.now() - startedAt });
-    return { status: 200, body: repaired.data };
+    // The repair satisfies every objective contract check. The verification pass is a subjective
+    // second opinion on creative taste, so unresolved notes are recorded for quality telemetry and
+    // left to the creator's own revision pass rather than withholding a usable storyboard.
+    const unresolved = repairVerificationIssues(
+      await provider.verifyStoryboardRepair(input.data, repairedDraft, initialIssues),
+      initialIssues.length,
+    );
+    if (unresolved.length > 0) {
+      console.warn("[Payoff AI:storyboard-quality]", JSON.stringify({ initial_issues: initialIssues, unresolved_issues: unresolved }));
+    }
+    log("info", "storyboard_generation_completed", { phase: "repair", unresolved_issues: unresolved, latency_ms: Date.now() - startedAt });
+    return { status: 200, body: repairedDraft };
   } catch (error) {
     log("error", "storyboard_generation_failed", {
       classification: error instanceof AIConfigurationError ? "configuration" : "provider_error",

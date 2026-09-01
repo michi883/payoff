@@ -126,20 +126,38 @@ function imageFromDataUrl(dataUrl: string): GeneratedSceneImage {
   return { dataUrl, mimeType: match[1] as GeneratedSceneImage["mimeType"] };
 }
 
-function reviewPasses(review: SceneQualityReview) {
+/** Storytelling requirements. A frame that misses one of these misrepresents its own beat. */
+function storytellingHolds(review: SceneQualityReview) {
   return review.story_core_clear
     && review.emotional_purpose_clear
-    && !review.material_failure
     && review.required_characters_present
     && !review.unexpected_character_or_reveal
     && !review.unexpected_object_or_clue
     && review.focal_action_clear
     && review.relationship_clear
-    && !review.contradiction
+    && !review.contradiction;
+}
+
+function reviewPasses(review: SceneQualityReview) {
+  return storytellingHolds(review)
+    && !review.material_failure
     && review.identity_consistent
     && review.setting_consistent
     && review.room_layout_consistent
     && review.lighting_consistent;
+}
+
+/**
+ * Acceptance bar for a candidate that has already been through the bounded repair pass. The
+ * reviewer's own contract lets a cosmetic prop or wardrobe variance leave a continuity flag false
+ * while the frame still reads correctly, so drift of that kind — and a material_failure raised by
+ * nothing else — no longer withholds the only frame the creator has. Identity and setting stay
+ * blocking because they break the whole sequence rather than one card.
+ */
+function repairPasses(review: SceneQualityReview) {
+  return storytellingHolds(review)
+    && review.identity_consistent
+    && review.setting_consistent;
 }
 
 function remember(hash: string, image: GeneratedSceneImage, reference: SceneReferencePayload) {
@@ -288,11 +306,23 @@ async function createAcceptedScene(
     () => provider.repair(input, reference, first, clarification, repairStrategy),
   );
   const repairedReview = await reviewCandidate("repair_semantic_review", repaired);
-  if (reviewPasses(repairedReview)) {
-    const nextReference = referenceAfterScene(input, referencePayload, repaired);
-    remember(input.content_hash, repaired, nextReference);
-    diagnostic("info", trace, "scene_accepted", { phase: "repair", image_bytes: repaired.dataUrl.length, cache: "server_memory" });
-    return { status: 200, body: { content_hash: input.content_hash, image_data_url: repaired.dataUrl, continuity_reference: nextReference } };
+  // A repair can regress a candidate that was already close, so judge both frames and keep the
+  // better one instead of discarding the work and leaving the creator an empty card.
+  const accepted = repairPasses(repairedReview)
+    ? { image: repaired, phase: "repair" as const }
+    : repairPasses(firstReview)
+      ? { image: first, phase: "initial_after_regressed_repair" as const }
+      : null;
+  if (accepted) {
+    const nextReference = referenceAfterScene(input, referencePayload, accepted.image);
+    remember(input.content_hash, accepted.image, nextReference);
+    diagnostic("info", trace, "scene_accepted", {
+      phase: accepted.phase,
+      image_bytes: accepted.image.dataUrl.length,
+      cache: "server_memory",
+      accepted_review: accepted.phase === "repair" ? repairedReview : firstReview,
+    });
+    return { status: 200, body: { content_hash: input.content_hash, image_data_url: accepted.image.dataUrl, continuity_reference: nextReference } };
   }
   diagnostic("warn", trace, "scene_rejected", { classification: "semantic_mismatch", initial_review: firstReview, repaired_review: repairedReview });
   return errorResult(422, "SCENE_MISMATCH", "Scene visual couldn't be created.", true);

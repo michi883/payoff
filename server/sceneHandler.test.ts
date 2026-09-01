@@ -76,13 +76,13 @@ const failingReview = {
   clarification: "Place the red boat visibly between Grandpa's guiding stick and Maya's waiting hands.",
 };
 
-function provider(reviews: Array<typeof passingReview | typeof failingReview>) {
+function provider(reviews: Array<typeof passingReview | typeof failingReview>, repairedImage = image) {
   let reviewIndex = 0;
   const value: SceneImageProvider = {
     prepareEnvironmentReference: vi.fn(async () => reference.environment),
     prepareCharacterReference: vi.fn(async () => image),
     generate: vi.fn(async () => image),
-    repair: vi.fn(async () => image),
+    repair: vi.fn(async () => repairedImage),
     review: vi.fn(async () => reviews[Math.min(reviewIndex++, reviews.length - 1)]),
   };
   return value;
@@ -205,6 +205,60 @@ describe("scene image handler", () => {
 
     expect(result.status).toBe(200);
     expect(sceneProvider.repair).not.toHaveBeenCalled();
+  });
+
+  it("accepts a repaired scene that resolves storytelling requirements despite minor continuity variance", async () => {
+    const input = request("repair-variance-case");
+    const repairedImage = { dataUrl: "data:image/webp;base64,BBBB", mimeType: "image/webp" as const };
+    const initialStoryReview = {
+      ...failingReview,
+      clarification: "Place the red boat visibly between Grandpa's stick and Maya's hands.",
+    };
+    const repairedReviewWithVariance = {
+      ...passingReview,
+      passed: false,
+      material_failure: true,
+      lighting_consistent: false,
+      room_layout_consistent: false,
+      prop_continuity_consistent: false,
+      continuity_consistent: false,
+      clarification: "Daylight is slightly warmer than reference.",
+    };
+    const sceneProvider = provider([initialStoryReview, repairedReviewWithVariance], repairedImage);
+
+    const result = await handleScene("POST", input, sceneProvider);
+
+    expect(result.status).toBe(200);
+    expect(result.body).toHaveProperty("image_data_url", repairedImage.dataUrl);
+    expect(sceneProvider.generate).toHaveBeenCalledTimes(1);
+    expect(sceneProvider.repair).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps the initial candidate when the repair pass regresses it", async () => {
+    const input = request("regressed-repair-case");
+    const repairedImage = { dataUrl: "data:image/webp;base64,CCCC", mimeType: "image/webp" as const };
+    const initialDriftReview = {
+      ...passingReview,
+      passed: false,
+      material_failure: true,
+      prop_continuity_consistent: false,
+      continuity_consistent: false,
+      clarification: "Seat Grandpa with the mug on the rail rather than in his hand.",
+    };
+    const regressedRepairReview = {
+      ...passingReview,
+      passed: false,
+      material_failure: true,
+      unexpected_object_or_clue: true,
+      clarification: "The repair added a second boat that is not part of this beat.",
+    };
+    const sceneProvider = provider([initialDriftReview, regressedRepairReview], repairedImage);
+
+    const result = await handleScene("POST", input, sceneProvider);
+
+    expect(result.status).toBe(200);
+    expect(result.body).toHaveProperty("image_data_url", image.dataUrl);
+    expect(sceneProvider.repair).toHaveBeenCalledTimes(1);
   });
 
   it("regenerates once from continuity references when the candidate breaks the room layout", async () => {
