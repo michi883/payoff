@@ -238,7 +238,8 @@ function WorkspaceTabs({ isTestView, onSwitch }: { isTestView: boolean; onSwitch
 }
 
 export function WorkspaceApp() {
-  const workspace = useWorkspace();
+  const workspaceStore = payoffStore;
+  const workspace = useWorkspace(workspaceStore);
   const beats = getActiveBeats(workspace);
   const activeVersion = getActiveVersion(workspace);
   const [agentCapability, setAgentCapability] = useState<AgentCapability>("webmcp-unavailable");
@@ -291,11 +292,11 @@ export function WorkspaceApp() {
   useEffect(() => {
     let unregister: () => void = () => undefined;
     let mounted = true;
-    void registerPayoffTools((capability) => mounted && setAgentCapability(capability))
+    void registerPayoffTools((capability) => mounted && setAgentCapability(capability), workspaceStore)
       .then((cleanup) => { if (mounted) unregister = cleanup; else cleanup(); })
       .catch(() => undefined);
     return () => { mounted = false; unregister(); };
-  }, []);
+  }, [workspaceStore]);
 
   useEffect(() => () => {
     generationController.current?.abort();

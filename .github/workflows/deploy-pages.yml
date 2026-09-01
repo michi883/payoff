@@ -24,7 +24,7 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
-      - run: npm run build
+      - run: npm run check
       - name: Preserve client-side routes
         run: |
           mkdir -p dist/study

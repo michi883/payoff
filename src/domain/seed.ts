@@ -1,5 +1,5 @@
-import type { BeatVisual, ProjectBrief, ReactionSet, StoryBeat, StoryVersion, StudyStimulus, VisualContinuity, Workspace } from "./types";
-import { EMPTY_VISUAL_CONTINUITY, canonicalArtwork, stableHash } from "./visuals";
+import type { BeatVisual, ProjectBrief, ReactionSet, StoryBeat, StoryVersion, StudyStimulus, VisualContinuity, Workspace } from "./types.ts";
+import { EMPTY_VISUAL_CONTINUITY, canonicalArtwork, stableHash } from "./visuals.ts";
 
 export const RESEARCH_MIN_SAMPLE = 12;
 export const BASELINE_VERSION_ID = "looks-great-v1";

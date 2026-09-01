@@ -58,6 +58,7 @@ function GeneratedSceneVisual({ beat, continuity, storyId, versionId, label, upd
   const current = state.hash === artwork.contentHash ? state : { hash: artwork.contentHash, status: "creating" as const };
 
   useEffect(() => {
+    if (current.status !== "creating") return;
     let mounted = true;
     const hash = artwork.contentHash;
     void getSceneImage({
@@ -111,7 +112,7 @@ function GeneratedSceneVisual({ beat, continuity, storyId, versionId, label, upd
       }
     });
     return () => { mounted = false; };
-  }, [artwork, attempt, beat.action, beat.id, beat.intendedEmotion, beat.line, beat.narrativeRole, beat.order, beat.title, continuity, storyId, versionId]);
+  }, [artwork, attempt, beat.action, beat.id, beat.intendedEmotion, beat.line, beat.narrativeRole, beat.order, beat.title, continuity, current.status, storyId, versionId]);
 
   if (current.status === "ready") {
     return (

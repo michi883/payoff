@@ -99,6 +99,52 @@ The first prompt should read live Payoff state without mutating it. After the hu
 
 The registration and tool contracts live in [`src/webmcp/tools.ts`](./src/webmcp/tools.ts). Native registration and tool behavior are covered in [`src/webmcp/tools.test.ts`](./src/webmcp/tools.test.ts) and the Playwright suite.
 
+### Chrome WebMCP Inspector demo payload
+
+Open `/?demo=1`, create or load **Looks Great**, then open the Chrome WebMCP Inspector side panel. Run `get_story_brief` with `{}` and `list_story_beats` with `{}` before writing. Copy `active_version` from the read result into `expected_version`, and copy the first returned beat's `id`; do not use the Inspector's `example_string` placeholders. A clean demo returns `looks-great-v1` and `beat-1`, but a persisted demo revision returns a newer version and must use that newer value.
+
+`replace_story_beat` is a full replacement. For the clean reviewed baseline, the exact deterministic opening-revision payload is:
+
+```json
+{
+  "beat_id": "beat-1",
+  "expected_version": "looks-great-v1",
+  "title": "Answering on autopilot",
+  "action": "Before his daughter finishes raising the drawing, Dad says “Looks great” without lifting his eyes from his phone.",
+  "line": "Looks great.",
+  "narrative_role": "setup",
+  "intended_emotion": "familiar amusement",
+  "visual": {
+    "setting": "The family dining area in their warm apartment, beside the small table.",
+    "characters": [
+      {
+        "id": "daughter",
+        "appearance": "Eight years old, dark ponytail, orange shirt, indigo trousers, expressive round face.",
+        "position": "Standing at the left edge of the table, still raising the drawing toward Dad.",
+        "action": "Lifts the drawing from chest height toward Dad, hopeful and not yet finished presenting it."
+      },
+      {
+        "id": "dad",
+        "appearance": "Early 40s, short dark hair, charcoal sweater, dark trousers, gentle face that looks tired when distracted.",
+        "position": "Seated on the right side of the table.",
+        "action": "Keeps his eyes on the phone while lifting his free hand in an automatic reassuring gesture."
+      }
+    ],
+    "focal_action": "Dad answers automatically while the daughter's drawing is still being raised and his gaze stays on the phone.",
+    "focal_object": "The half-raised drawing contrasted with Dad's phone and reflexive free-hand gesture.",
+    "composition": "Keep the drawing mid-offer between them, Dad's phone-focused gaze unmistakable, and the lower center clear for the product-controlled line.",
+    "emotional_cue": "Her hopeful momentum meets his practiced, unintentional inattention.",
+    "visible_text": "LOOKS GREAT",
+    "continuity_notes": [
+      "Preserve the exact daughter, Dad, apartment, wardrobe, phone, drawing palette, and warm-neutral daylight.",
+      "Revised creator direction: Make the opening faster"
+    ]
+  }
+}
+```
+
+The line, narrative role, intended emotion, setting, character appearances, and Dad's position come from `list_story_beats`. Only the visible opening action and the visual fields required to depict it change. A successful call returns `looks-great-r2`, updates Beat 1 immediately, and survives a reload from the isolated `payoff.demo.workspace.v5` workspace. Repeating this payload with the old `expected_version` returns an `isError: true` result beginning `Stale expected_version:`.
+
 ## Production Architecture
 
 Payoff's primary production target is one containerized Node service on Google Cloud Run. The same origin serves the built Vite application, `/study`, and every server-side AI route. The browser owns the shared versioned workspace used by both the visual UI and WebMCP tools; Cloud Run validates requests and returns provider results without becoming a second source of story state.
@@ -128,7 +174,7 @@ Cloud Run · Node service
 
 ## Run Locally
 
-Requirements: Node.js 22+ and npm 10+.
+Requirements: Node.js 22.13+ and npm 10+.
 
 ```bash
 npm install
@@ -178,7 +224,7 @@ Payoff registers eight narrow tools against the same external store and domain c
 | Tool | Kind | Purpose |
 | --- | --- | --- |
 | `get_story_brief` | Read | Read the brief, target, evidence state, and versions. |
-| `list_story_beats` | Read | Read the ordered storyboard or one stable beat. |
+| `list_story_beats` | Read | Read the complete ordered storyboard and stable beat IDs. |
 | `get_ai_preview` | Read | Read the active version's simulated result. |
 | `get_audience_reactions` | Read, untrusted content | Read real findings pinned to the tested version. |
 | `create_story_beat` | Write | Insert one visible beat. |
@@ -283,14 +329,16 @@ The acceptance runner generates comedy, warm family, awkward social, suspense/re
 
 ## Deploy to Cloud Run
 
-The checked-in scripts default to project `payoff-507012`, region `us-central1`, and service name `payoff`. Authenticate the Google Cloud CLI, then create or update the two runtime secrets from a local ignored `.env` file and deploy:
+The checked-in scripts use `GCP_PROJECT_ID` when set and otherwise use the active Google Cloud CLI project. They default to region `us-central1` and service name `payoff`. Authenticate the Google Cloud CLI, choose your project, then create or update the two runtime secrets from a local ignored `.env` file and deploy:
 
 ```bash
 gcloud auth login
-gcloud config set project payoff-507012
+gcloud config set project YOUR_PROJECT_ID
 ./scripts/configure-cloud-run-secrets.sh
 ./scripts/deploy-cloud-run.sh
 ```
+
+The default deployment is publicly reachable and calls paid model APIs. Before operating it beyond a controlled demo, configure provider budgets and add the abuse controls appropriate to your environment, such as authenticated access or an external distributed rate limiter.
 
 The deployment script enables the required APIs, creates the Artifact Registry repository and dedicated `payoff-cloud-run` runtime service account when absent, handles the reduced default Cloud Build permissions used by post-2024 GCP projects, builds the `Dockerfile`, and deploys publicly. Secret values are never printed, copied into the build context, or baked into the image. Optional model variables can be overridden when invoking the script:
 
@@ -312,3 +360,5 @@ The Vercel function adapters remain as secondary compatibility entrypoints. The 
 ## License
 
 [MIT](./LICENSE)
+
+Contributions are welcome; see [CONTRIBUTING.md](./CONTRIBUTING.md). Please report vulnerabilities privately as described in [SECURITY.md](./SECURITY.md).

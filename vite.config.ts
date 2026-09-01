@@ -4,16 +4,17 @@ import { payoffApiPlugin } from "./server/devApiPlugin.ts";
 
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), "");
+  const providerCallsDisabled = process.env.PAYOFF_DISABLE_PROVIDER_CALLS === "1";
   return {
     base: process.env.GITHUB_ACTIONS ? "/payoff/" : "/",
     plugins: [
       react(),
       payoffApiPlugin({
-        apiKey: env.OPENAI_API_KEY,
+        apiKey: providerCallsDisabled ? undefined : env.OPENAI_API_KEY,
         model: env.OPENAI_MODEL,
-        geminiApiKey: env.GEMINI_API_KEY,
+        geminiApiKey: providerCallsDisabled ? undefined : env.GEMINI_API_KEY,
         geminiImageModel: env.GEMINI_IMAGE_MODEL,
-        sceneReviewModel: env.OPENAI_SCENE_REVIEW_MODEL,
+        sceneReviewModel: providerCallsDisabled ? undefined : env.OPENAI_SCENE_REVIEW_MODEL,
       }),
     ],
     test: {

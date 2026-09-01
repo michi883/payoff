@@ -43,6 +43,11 @@ describe("Payoff WebMCP tools", () => {
     expect(tools.slice(4).every((tool) => tool.annotations?.readOnlyHint === false)).toBe(true);
     expect(tools.every((tool) => tool.name.length <= 30)).toBe(true);
     expect(tools.every((tool) => tool.description.length <= 500)).toBe(true);
+    expect(tools.find((tool) => tool.name === "list_story_beats")?.inputSchema).toEqual({
+      type: "object",
+      properties: {},
+      additionalProperties: false,
+    });
   });
 
   it("returns no invented audience evidence before imports", async () => {
@@ -75,6 +80,60 @@ describe("Payoff WebMCP tools", () => {
     expect(store.getSnapshot().versions.at(-1)?.beats[4].visual.contentHash).not.toBe(
       store.getSnapshot().versions[0].beats[4].visual.contentHash,
     );
+  });
+
+  it("returns actionable replacement failures instead of opaque callback errors", async () => {
+    const store = new PayoffStore({ persist: false, initialState: createCanonicalWorkspace() });
+    const replace = buildPayoffTools(store).find((tool) => tool.name === "replace_story_beat")!;
+    const replacement = {
+      beat_id: "beat-5",
+      expected_version: BASELINE_VERSION_ID,
+      title: "He sees it",
+      action: "Dad studies the drawing for the first time.",
+      line: "DAD",
+      narrative_role: "turn",
+      intended_emotion: "recognition",
+      visual: visualInput("Dad studies the drawing for the first time and understands what it depicts."),
+    };
+
+    const unknown = await replace.execute({ ...replacement, beat_id: "example_string" }, options) as {
+      isError: boolean;
+      content: Array<{ text: string }>;
+      error: { code: string };
+    };
+    expect(unknown.isError).toBe(true);
+    expect(unknown.error.code).toBe("unknown_beat_id");
+    expect(unknown.content[0].text).toMatch(/^Unknown beat_id:/);
+
+    const invalid = await replace.execute({
+      beat_id: "beat-5",
+      expected_version: BASELINE_VERSION_ID,
+      title: "He sees it",
+      action: "Dad studies the drawing for the first time.",
+      line: "DAD",
+      narrative_role: "turn",
+      intended_emotion: "recognition",
+    }, options) as {
+      isError: boolean;
+      content: Array<{ text: string }>;
+      error: { code: string };
+    };
+    expect(invalid.isError).toBe(true);
+    expect(invalid.error.code).toBe("invalid_replacement_payload");
+    expect(invalid.content[0].text).toMatch(/^Invalid replacement payload:/);
+
+    const changed = await replace.execute(replacement, options) as { activeVersionId: string };
+    expect(changed.activeVersionId).not.toBe(BASELINE_VERSION_ID);
+
+    const stale = await replace.execute(replacement, options) as {
+      isError: boolean;
+      content: Array<{ text: string }>;
+      error: { code: string };
+    };
+    expect(stale.isError).toBe(true);
+    expect(stale.error.code).toBe("stale_expected_version");
+    expect(stale.content[0].text).toMatch(/^Stale expected_version:/);
+    expect(store.getSnapshot().versions).toHaveLength(2);
   });
 
   it("reads the locally created deterministic starter without agent build calls", async () => {
@@ -168,6 +227,42 @@ describe("Payoff WebMCP tools", () => {
 
     cleanup();
     expect(registrationSignals.every((signal) => signal.aborted)).toBe(true);
+    Reflect.deleteProperty(document, "modelContext");
+  });
+
+  it("registers writes against the same explicit store that notifies workspace subscribers", async () => {
+    const registeredTools: WebMCP.ModelContextTool[] = [];
+    Object.defineProperty(document, "modelContext", {
+      configurable: true,
+      value: {
+        registerTool: async (tool: WebMCP.ModelContextTool) => {
+          registeredTools.push(tool);
+        },
+      },
+    });
+    const store = new PayoffStore({ persist: false, initialState: createCanonicalWorkspace() });
+    const subscriber = vi.fn();
+    const unsubscribe = store.subscribe(subscriber);
+    const cleanup = await registerPayoffTools(undefined, store);
+    const replace = registeredTools.find((tool) => tool.name === "replace_story_beat")!;
+
+    const result = await replace.execute({
+      beat_id: "beat-5",
+      expected_version: BASELINE_VERSION_ID,
+      title: "He sees it",
+      action: "Dad studies the drawing for the first time.",
+      line: "DAD",
+      narrative_role: "turn",
+      intended_emotion: "recognition",
+      visual: visualInput("Dad studies the drawing for the first time and understands what it depicts."),
+    }, options) as { activeVersionId: string };
+
+    expect(subscriber).toHaveBeenCalledTimes(1);
+    expect(result.activeVersionId).toBe(store.getSnapshot().activeVersionId);
+    expect(store.getSnapshot().versions.at(-1)?.beats[4].title).toBe("He sees it");
+
+    cleanup();
+    unsubscribe();
     Reflect.deleteProperty(document, "modelContext");
   });
 });

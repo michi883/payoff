@@ -1,7 +1,12 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-PROJECT_ID="${GCP_PROJECT_ID:-payoff-507012}"
+CONFIGURED_PROJECT="$(gcloud config get-value project 2>/dev/null)"
+PROJECT_ID="${GCP_PROJECT_ID:-$CONFIGURED_PROJECT}"
+if [[ -z "$PROJECT_ID" || "$PROJECT_ID" == "(unset)" ]]; then
+  echo "No Google Cloud project configured. Set GCP_PROJECT_ID or run: gcloud config set project PROJECT_ID" >&2
+  exit 1
+fi
 REGION="${GCP_REGION:-us-central1}"
 SERVICE_NAME="${CLOUD_RUN_SERVICE:-payoff}"
 REPOSITORY="${ARTIFACT_REPOSITORY:-payoff}"
@@ -9,6 +14,7 @@ RUNTIME_ACCOUNT_NAME="${CLOUD_RUN_SERVICE_ACCOUNT:-payoff-cloud-run}"
 OPENAI_MODEL_NAME="${OPENAI_MODEL:-gpt-5.4-mini}"
 SCENE_REVIEW_MODEL_NAME="${OPENAI_SCENE_REVIEW_MODEL:-gpt-5.4}"
 GEMINI_MODEL_NAME="${GEMINI_IMAGE_MODEL:-gemini-3.1-flash-lite-image}"
+MIN_INSTANCES="${MIN_INSTANCES:-0}"
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 REPOSITORY_ROOT="$(cd -- "$SCRIPT_DIR/.." && pwd)"
 PROJECT_NUMBER="$(gcloud projects describe "$PROJECT_ID" --format='value(projectNumber)')"
@@ -96,11 +102,11 @@ gcloud run deploy "$SERVICE_NAME" \
   --execution-environment=gen2 \
   --service-account "$RUNTIME_ACCOUNT" \
   --port=8080 \
-  --cpu=2 \
-  --memory=2Gi \
+  --cpu=4 \
+  --memory=4Gi \
   --concurrency=4 \
   --timeout=600 \
-  --min-instances=0 \
+  --min-instances="$MIN_INSTANCES" \
   --max-instances=10 \
   --cpu-boost \
   --set-secrets="OPENAI_API_KEY=OPENAI_API_KEY:latest,GEMINI_API_KEY=GEMINI_API_KEY:latest" \

@@ -1,6 +1,6 @@
 import { useSyncExternalStore } from "react";
-import { payoffStore } from "./store";
+import { payoffStore, type PayoffStore } from "./store";
 
-export function useWorkspace() {
-  return useSyncExternalStore(payoffStore.subscribe, payoffStore.getSnapshot, payoffStore.getSnapshot);
+export function useWorkspace(store: PayoffStore = payoffStore) {
+  return useSyncExternalStore(store.subscribe, store.getSnapshot, store.getSnapshot);
 }

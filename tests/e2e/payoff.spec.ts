@@ -584,6 +584,7 @@ test("revision proposals are image-independent and applied text survives a scene
 });
 
 test("the Looks Great storyboard keeps canonical order and hides editing behind one menu", async ({ page }) => {
+  await mockSceneImages(page);
   await openClean(page);
   await startExample(page);
 
@@ -1262,7 +1263,127 @@ test("demo persistence and hard reset stay isolated from the normal workspace", 
   expect(await page.evaluate(() => localStorage.getItem("payoff.workspace.v4"))).toBe(normalWorkspace);
 });
 
+test("demo WebMCP immediately updates a returned beat with version safety and isolated persistence", async ({ page }) => {
+  await openClean(page, "/?demo=1");
+  await startExample(page);
+
+  const brief = await runTool<{ active_version: string; evidence_status: string }>(page, "get_story_brief", {});
+  const board = await runTool<{
+    active_version: string;
+    beats: Array<{
+      id: string;
+      order: number;
+      title: string;
+      action: string;
+      line: string;
+      role: "setup" | "escalation" | "turn" | "payoff";
+      intended_emotion: string;
+      visual: {
+        setting: string;
+        characters: Array<{ id: string; appearance: string; position: string; action: string }>;
+        focal_action: string;
+        focal_object: string;
+        composition: string;
+        emotional_cue: string;
+        visible_text: string;
+        continuity_notes: string[];
+      };
+    }>;
+  }>(page, "list_story_beats", {});
+
+  expect(board.active_version).toBe(brief.active_version);
+  const beat = board.beats.find((candidate) => candidate.order === 1)!;
+  const replacementInput = {
+    beat_id: beat.id,
+    expected_version: brief.active_version,
+    title: "Answering on autopilot",
+    action: "Before his daughter finishes raising the drawing, Dad says “Looks great” without lifting his eyes from his phone.",
+    line: beat.line,
+    narrative_role: beat.role,
+    intended_emotion: beat.intended_emotion,
+    visual: {
+      setting: beat.visual.setting,
+      characters: beat.visual.characters.map((character) => character.id === "daughter"
+        ? {
+            ...character,
+            position: "Standing at the left edge of the table, still raising the drawing toward Dad.",
+            action: "Lifts the drawing from chest height toward Dad, hopeful and not yet finished presenting it.",
+          }
+        : character.id === "dad"
+          ? {
+              ...character,
+              action: "Keeps his eyes on the phone while lifting his free hand in an automatic reassuring gesture.",
+            }
+          : character),
+      focal_action: "Dad answers automatically while the daughter's drawing is still being raised and his gaze stays on the phone.",
+      focal_object: "The half-raised drawing contrasted with Dad's phone and reflexive free-hand gesture.",
+      composition: "Keep the drawing mid-offer between them, Dad's phone-focused gaze unmistakable, and the lower center clear for the product-controlled line.",
+      emotional_cue: "Her hopeful momentum meets his practiced, unintentional inattention.",
+      visible_text: "LOOKS GREAT",
+      continuity_notes: [
+        "Preserve the exact daughter, Dad, apartment, wardrobe, phone, drawing palette, and warm-neutral daylight.",
+        "Revised creator direction: Make the opening faster",
+      ],
+    },
+  };
+
+  const replacement = await runTool<{ affectedBeatIds: string[]; activeVersionId: string }>(
+    page,
+    "replace_story_beat",
+    replacementInput,
+  );
+  expect(replacement.affectedBeatIds).toEqual([beat.id]);
+  expect(replacement.activeVersionId).not.toBe(brief.active_version);
+  await expect(page.getByRole("heading", { name: "Answering on autopilot" })).toBeVisible();
+  await expect(page.getByText(replacementInput.action, { exact: true })).toBeVisible();
+  await expect(page.getByText("Untested revision", { exact: true })).toBeVisible();
+  await expect(page.getByRole("img", { name: /Illustration for beat 1: Answering on autopilot/ })).toBeVisible();
+
+  const after = await runTool<{ active_version: string; evidence_status: string }>(page, "get_story_brief", {});
+  expect(after.active_version).toBe(replacement.activeVersionId);
+  expect(after.evidence_status).toMatch(/^Untested revision/);
+
+  const currentBoard = await runTool<typeof board>(page, "list_story_beats", {});
+  expect(currentBoard.active_version).toBe(replacement.activeVersionId);
+  expect(currentBoard.beats.find((candidate) => candidate.id === beat.id)?.title).toBe("Answering on autopilot");
+
+  await page.reload();
+  await expect(page.getByRole("heading", { name: "Answering on autopilot" })).toBeVisible();
+  await expect(page.getByText(replacementInput.action, { exact: true })).toBeVisible();
+  await expect(page.getByText("Untested revision", { exact: true })).toBeVisible();
+  await expect(page.getByRole("img", { name: /Illustration for beat 1: Answering on autopilot/ })).toBeVisible();
+  const afterReload = await runTool<{ active_version: string; evidence_status: string }>(page, "get_story_brief", {});
+  expect(afterReload.active_version).toBe(replacement.activeVersionId);
+  expect(afterReload.evidence_status).toMatch(/^Untested revision/);
+  const boardAfterReload = await runTool<typeof board>(page, "list_story_beats", {});
+  expect(boardAfterReload.active_version).toBe(replacement.activeVersionId);
+  expect(boardAfterReload.beats.find((candidate) => candidate.id === beat.id)?.title).toBe("Answering on autopilot");
+
+  const stale = await runTool<{
+    isError: true;
+    content: Array<{ type: "text"; text: string }>;
+    error: { code: string; message: string };
+  }>(page, "replace_story_beat", replacementInput);
+  expect(stale.isError).toBe(true);
+  expect(stale.error.code).toBe("stale_expected_version");
+  expect(stale.content[0].text).toMatch(/^Stale expected_version:/);
+
+  const persisted = await page.evaluate(() => ({
+    demo: JSON.parse(localStorage.getItem("payoff.demo.workspace.v5") ?? "null") as {
+      activeVersionId: string;
+      versions: Array<{ beats: Array<{ id: string; title: string }> }>;
+    } | null,
+    normal: localStorage.getItem("payoff.workspace.v4"),
+  }));
+  expect(persisted.demo?.activeVersionId).toBe(replacement.activeVersionId);
+  expect(persisted.demo?.versions).toHaveLength(2);
+  expect(persisted.demo?.versions[0].beats.find((candidate) => candidate.id === beat.id)?.title).toBe(beat.title);
+  expect(persisted.demo?.versions[1].beats.find((candidate) => candidate.id === beat.id)?.title).toBe("Answering on autopilot");
+  expect(persisted.normal).toBeNull();
+});
+
 test("WebMCP remains an opt-in primitive collaboration layer", async ({ page }) => {
+  await mockSceneImages(page);
   await openClean(page, "/?debug=1");
   await startExample(page);
   await expect(page.getByText("Developer details", { exact: true })).toBeVisible();

@@ -147,6 +147,70 @@ function trim(value: string, max = 150) {
   return value.length <= max ? value : `${value.slice(0, max - 1)}…`;
 }
 
+type ToolErrorCode =
+  | "unknown_beat_id"
+  | "stale_expected_version"
+  | "invalid_replacement_payload"
+  | "invalid_tool_payload"
+  | "tool_execution_failed";
+
+type ToolErrorResult = {
+  content: [{ type: "text"; text: string }];
+  isError: true;
+  error: {
+    code: ToolErrorCode;
+    message: string;
+  };
+};
+
+function toolErrorResult(toolName: string, error: unknown): ToolErrorResult {
+  const detail = error instanceof Error ? error.message : String(error);
+  const unknownBeat = /^Unknown beat ID:\s*(.+)$/.exec(detail);
+  if (unknownBeat) {
+    const message = `Unknown beat_id: ${unknownBeat[1]}. Call list_story_beats and use one of its returned beat IDs.`;
+    return {
+      content: [{ type: "text", text: message }],
+      isError: true,
+      error: { code: "unknown_beat_id", message },
+    };
+  }
+
+  const staleVersion = /^Stale story version\. Expected ([^;]+); received ([^.]+)\./.exec(detail);
+  if (staleVersion) {
+    const message = `Stale expected_version: active version is ${staleVersion[1]}, but received ${staleVersion[2]}. Call get_story_brief or list_story_beats again before editing.`;
+    return {
+      content: [{ type: "text", text: message }],
+      isError: true,
+      error: { code: "stale_expected_version", message },
+    };
+  }
+
+  if (toolName === "replace_story_beat") {
+    const message = `Invalid replacement payload: ${detail}`;
+    return {
+      content: [{ type: "text", text: message }],
+      isError: true,
+      error: { code: "invalid_replacement_payload", message },
+    };
+  }
+
+  if (["create_story_beat", "move_story_beat", "save_ai_preview"].includes(toolName)) {
+    const message = `Invalid tool payload for ${toolName}: ${detail}`;
+    return {
+      content: [{ type: "text", text: message }],
+      isError: true,
+      error: { code: "invalid_tool_payload", message },
+    };
+  }
+
+  const message = `Tool execution failed in ${toolName}: ${detail}`;
+  return {
+    content: [{ type: "text", text: message }],
+    isError: true,
+    error: { code: "tool_execution_failed", message },
+  };
+}
+
 export type AgentCapability =
   | "webmcp-unavailable"
   | "tools-exposed"
@@ -186,21 +250,13 @@ export function buildPayoffTools(
       name: "list_story_beats",
       title: "Read storyboard",
       description:
-        "Read the active storyboard in order, or one beat by stable ID. Returns story content and structural intent. This never changes the story.",
-      inputSchema: {
-        type: "object",
-        properties: {
-          beat_id: { type: "string", maxLength: 100, description: "Optional stable beat ID to inspect." },
-        },
-        additionalProperties: false,
-      },
+        "Read the complete active storyboard in order. Returns stable beat IDs, story content, structural intent, and visual direction. This never changes the story.",
+      inputSchema: emptySchema,
       annotations: { readOnlyHint: true },
-      execute: async (input, options) => {
+      execute: async (_input, options) => {
         assertNotAborted(options);
         const state = store.getSnapshot();
-        const requestedId = optionalString(input, "beat_id");
-        const beats = getActiveBeats(state).filter((beat) => !requestedId || beat.id === requestedId);
-        if (requestedId && beats.length === 0) throw new Error(`Unknown beat ID: ${requestedId}`);
+        const beats = getActiveBeats(state);
         return {
           active_version: state.activeVersionId,
           visual_continuity: state.versions.find((version) => version.id === state.activeVersionId)?.visualContinuity,
@@ -488,13 +544,19 @@ export function buildPayoffTools(
     ...tool,
     execute: async (input, options) => {
       onAgentInteraction?.(tool.name);
-      return tool.execute(input, options);
+      try {
+        return await tool.execute(input, options);
+      } catch (error) {
+        if (error instanceof Error && error.name === "AbortError") throw error;
+        return toolErrorResult(tool.name, error);
+      }
     },
   }));
 }
 
 export async function registerPayoffTools(
   onCapability?: (capability: AgentCapability) => void,
+  store: PayoffStore = payoffStore,
 ): Promise<() => void> {
   if (typeof document.modelContext?.registerTool !== "function") {
     onCapability?.("webmcp-unavailable");
@@ -511,7 +573,7 @@ export async function registerPayoffTools(
   };
 
   try {
-    for (const tool of buildPayoffTools(payoffStore, () => updateCapability("agent-interacted"))) {
+    for (const tool of buildPayoffTools(store, () => updateCapability("agent-interacted"))) {
       await document.modelContext.registerTool(tool, { signal: controller.signal });
     }
     updateCapability("tools-exposed");
