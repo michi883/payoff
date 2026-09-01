@@ -355,7 +355,7 @@ The default deployment uses 2 vCPU, 2 GiB memory, concurrency 4, startup CPU boo
 
 The browser requests custom scenes progressively in story order. Each scene is an independent `/api/scene` request with its own bounded provider retries and neutral failure response, so one slow or failed scene does not discard the storyboard or stop completed cards. A scale-from-zero cold start may affect the first request's latency but not state integrity. In-memory deduplication and LRU caches are performance optimizations within one warm instance; they are never durable state and may disappear on restart or scale-out.
 
-The Vercel function adapters remain as secondary compatibility entrypoints. The historical GitHub Pages workflow can publish only the static client; it cannot run Payoff's server-side AI and is not a complete production deployment.
+Cloud Run is Payoff's sole production deployment target.
 
 ## License
 
