@@ -40,15 +40,9 @@ The agent can:
 5. Wait for human creative direction.
 6. Perform precise, version-checked edits to the same storyboard the creator sees.
 
-```text
-Creator UI ─────────────┐
-Payoff server-side AI ──┼──> shared, validated, versioned story state
-External WebMCP agent ──┘                       │
-                                               ├── storyboard
-                                               ├── AI Audience
-                                               ├── Human Audience evidence
-                                               └── immutable versions
-```
+![How Payoff uses WebMCP](docs/payoff-webmcp.png)
+
+*The creator and an external AI agent work with the same live, versioned Payoff workspace. The creator chooses the creative direction; the agent reads structured context and helps execute precise changes through WebMCP.*
 
 **Payoff's AI makes the product useful. WebMCP makes the workspace agent-native.**
 
